@@ -1,158 +1,244 @@
-function speechrecognition(filename)
-% Speech Recognition Using Cross-Correlation (Envelope + ZCR)
-% Tích hợp ZCR Contour để phân biệt "Four" và "Five"
 
-if nargin < 1 || isempty(filename)
-    error('Cách dùng: speechrecognition(''test.wav'')');
-end
+clc; clear; close all;
 
-    baseDir = fileparts(mfilename('fullpath'));
-    if ~isfile(filename)
-        filename = fullfile(baseDir, filename);
-    end
-
-targetFs = 8000;          
-minThreshold = 0.35; % Có thể cần hạ nhẹ ngưỡng do tính điểm tổng hợp
-
-% 1. Đọc và tiền xử lý file test
-[x, Fs] = audioread(filename);
-x = x(:,1); 
-if Fs ~= targetFs
-    x = resample(x, targetFs, Fs);
-    Fs = targetFs;
-end
-
-x = bandpassFilter(x, Fs);               
-x = removeSilenceAutocorr(x, Fs);        
-
-% [MỚI CHỈNH SỬA] Trích xuất 2 đặc trưng chạy dọc theo thời gian
-x_env = normalizeSignal(abs(hilbert(x)));      % Đặc trưng 1: Biên độ (Độ to)
-x_zcr = normalizeSignal(getZCRContour(x, Fs)); % Đặc trưng 2: ZCR (Màu sắc/Tần số)
-
-templateNames = {'tien.wav','lui.wav','trai.wav','phai.wav','dung.wav'};
+%% =========================================================
+targetFs = 8000;
+baseDir = fileparts(mfilename('fullpath'));
+templateNames = {'tien.wav', 'lui.wav', 'trai.wav', 'phai.wav', 'dung.wav'};
 templateFiles = fullfile(baseDir, templateNames);
+commands = {'TIEN', 'LUI', 'TRAI', 'PHAI', 'DUNG'};
 n = numel(templateFiles);
-peaks = zeros(1, n);
 
+% Khởi tạo mảng lưu đặc trưng
+env_templates = cell(1, n);
+zcr_templates = cell(1, n);
+
+fprintf('Đang nạp file mẫu...\n');
 for k = 1:n
     [y, Fs_y] = audioread(templateFiles{k});
     y = y(:,1);
-    
-    if Fs_y ~= targetFs
-        y = resample(y, targetFs, Fs_y);
-    end
+    if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
     
     y = bandpassFilter(y, targetFs);
-    y = removeSilenceAutocorr(y, targetFs);
+    y = removeSilenceAutocorr(y, targetFs); % Sử dụng Autocorrelation cắt khoảng lặng
     
-    % [MỚI CHỈNH SỬA] Trích xuất 2 đặc trưng cho file mẫu
-    y_env = normalizeSignal(abs(hilbert(y)));
-    y_zcr = normalizeSignal(getZCRContour(y, targetFs));
+    % Trích xuất sẵn và lưu lại
+    env_templates{k} = normalizeSignal(abs(hilbert(y)));
+    zcr_templates{k} = normalizeSignal(getZCRContour(y, targetFs));
+end
+fprintf('Hoàn tất nạp mẫu!\n');
+
+%% =========================================================
+
+% 2. KHỞI TẠO BẢN ĐỒ MÔ PHỎNG XE
+
+% ==========================================================
+
+figure('Name', 'MO PHONG XE GIONG NOI', 'Color', 'w');
+
+axis([0 100 0 100]); axis equal; grid on; hold on;
+
+xlabel('X'); ylabel('Y'); title('XE DIEU KHIEN BANG GIONG NOI');
+
+carX = 50; carY = 50; angle = 90;
+
+carLength = 10; carWidth = 6;
+
+speed = 5; turnAngle = 25;
+
+[carBody, carFront] = drawCar(carX, carY, angle, carLength, carWidth);
+
+%% =========================================================
+
+% 3. VÒNG LẬP NHẬN DẠNG & ĐIỀU KHIỂN
+
+minThreshold = 0.35; 
+
+while true % (Hoặc while ishandle(carBody))
+    fprintf('\n>>> Đang nghe... (Nói lệnh của bạn)\n');
     
-    % 2. Tính Tương quan chéo riêng biệt cho từng đặc trưng
-    [corr_env, ~] = xcorr(x_env, y_env, 'none');
-    [corr_zcr, ~] = xcorr(x_zcr, y_zcr, 'none');
+    % --- THU ÂM TỪ MICRO ---
+    recorder = audiorecorder(targetFs, 16, 1);
+    recordblocking(recorder, 2); % Thu 2 giây
+    x = getaudiodata(recorder);
+    x = x(:,1);
     
-    peak_env = max(abs(corr_env));
-    peak_zcr = max(abs(corr_zcr));
+    % --- TIỀN XỬ LÝ TÍN HIỆU THU ĐƯỢC ---
+    x = bandpassFilter(x, targetFs);
+    x = removeSilenceAutocorr(x, targetFs);
     
-    % [TRỌNG TÂM] Tổng hợp điểm với trọng số
-    % Ưu tiên 60% cho hình dáng âm lượng, 40% cho hình dáng tần số (ZCR)
-    % Bạn có thể tinh chỉnh tỷ lệ này (ví dụ 0.7 - 0.3) nếu muốn
-    weight_env = 0.3; 
-    weight_zcr = 0.7;
+    % Nếu tín hiệu quá ngắn (chỉ có tiếng ồn), bỏ qua
+    if length(x) < targetFs * 0.1
+        disp('Chưa nghe rõ!'); continue;
+    end
     
-    final_score = (weight_env * peak_env) + (weight_zcr * peak_zcr);
-    peaks(k) = final_score;
+    % --- TRÍCH XUẤT ĐẶC TRƯNG TÍN HIỆU THỬ ---
+    x_env = normalizeSignal(abs(hilbert(x)));
+    x_zcr = normalizeSignal(getZCRContour(x, targetFs));
+    
+    % --- SO SÁNH (CROSS-CORRELATION) ---
+    peaks = zeros(1, n);
+    for k = 1:n
+        [corr_env, ~] = xcorr(x_env, env_templates{k}, 'none');
+        [corr_zcr, ~] = xcorr(x_zcr, zcr_templates{k}, 'none');
+        
+        peak_env = max(abs(corr_env));
+        peak_zcr = max(abs(corr_zcr));
+        
+        % Tinh chỉnh trọng số (Nên test thử 0.5 - 0.5 cho tiếng Việt)
+        peaks(k) = (0.5 * peak_env) + (0.5 * peak_zcr); 
+    end
+    
+    % --- XUẤT KẾT QUẢ & ĐIỀU KHIỂN ---
+    [maxPeak, idx] = max(peaks);
+    
+    if maxPeak >= minThreshold
+        command = commands{idx};
+        fprintf('>>> Lệnh: %s (Score: %.2f)\n', command, maxPeak);
+% --- ĐIỀU KHIỂN XE ---
+
+switch command
+
+case 'TIEN'
+
+carX = carX + speed * cosd(angle); carY = carY + speed * sind(angle);
+
+case 'LUI'
+
+carX = carX - speed * cosd(angle); carY = carY - speed * sind(angle);
+
+case 'TRAI'
+
+angle = angle + turnAngle;
+
+case 'PHAI'
+
+angle = angle - turnAngle;
+
+case 'DUNG'
+
+% Dừng xe
+
+case 'TIEN_TRAI'
+
+angle = angle + turnAngle; carX = carX + speed * cosd(angle); carY = carY + speed * sind(angle);
+
+case 'TIEN_PHAI'
+
+angle = angle - turnAngle; carX = carX + speed * cosd(angle); carY = carY + speed * sind(angle);
+
+case 'LUI_TRAI'
+
+angle = angle + turnAngle; carX = carX - speed * cosd(angle); carY = carY - speed * sind(angle);
+
+case 'LUI_PHAI'
+
+angle = angle - turnAngle; carX = carX - speed * cosd(angle); carY = carY - speed * sind(angle);
+
+case 'QUAY_TRAI'
+
+angle = angle + 90;
+
+case 'QUAY_PHAI'
+
+angle = angle - 90;
+
 end
 
-% 4. Xuất kết quả nhận dạng
-[maxPeak, idx] = max(peaks);
-fprintf('\n=========================================\n');
-if maxPeak >= minThreshold
-    fprintf('KẾT QUẢ NHẬN DẠNG: "%s" (Điểm tổng hợp: %.3f)\n', ...
-        templateFiles{idx}, maxPeak);
-    
-    [y_match, Fs_m] = audioread(templateFiles{idx});
-    soundsc(y_match(:,1), Fs_m);
+
+% Giới hạn xe trong biên độ 0-100
+
+carX = max(8, min(92, carX)); carY = max(8, min(92, carY));
+
+
+% Cập nhật đồ họa xe
+
+if ishandle(carBody), delete(carBody); end
+
+if ishandle(carFront), delete(carFront); end
+
+[carBody, carFront] = drawCar(carX, carY, angle, carLength, carWidth);
+
+
+title(sprintf('Đang chạy: %s | X = %.1f | Y = %.1f | Hướng = %.0f deg', command, carX, carY, angle));
+
+drawnow;
 else
-    fprintf('KẾT QUẢ: KHÔNG NHẬN DẠNG ĐƯỢC (Đỉnh %.3f < Ngưỡng %.2f)\n', ...
-        maxPeak, minThreshold);
-end
-fprintf('=========================================\n');
-end
-
-% =========================================================================
-% CÁC HÀM PHỤ TRỢ (Giữ nguyên các hàm cũ và thêm hàm mới)
-% =========================================================================
-
-% [MỚI THÊM] HÀM PHỤ: Trích xuất đường bao ZCR liên tục
-function zcr_contour = getZCRContour(x, Fs)
-    winLen = round(Fs * 0.02); % Cửa sổ trượt 20ms
-    % Đếm sự thay đổi dấu (zero-crossings)
-    crossings = abs(diff(x > 0)); 
-    crossings = [crossings; 0]; % Bù lại 1 mẫu bị mất do hàm diff
-    
-    % Dùng trung bình trượt (moving average) để làm mượt thành một đường bao
-    zcr_contour = movmean(crossings, winLen);
-end
-
-% --- HÀM PHỤ: VAD CẮT KHOẢNG LẶNG (Giữ nguyên hàm đã nâng cấp ZCR trước đó) ---
-function x_clean = removeSilenceAutocorr(x, Fs)
-    frameLen = max(1, round(Fs * 0.02)); 
-    hopLen = round(frameLen / 2);        
-    numFrames = floor((length(x) - frameLen) / hopLen) + 1;
-    
-    if numFrames < 1, x_clean = x; return; end
-    
-    energy = zeros(1, numFrames);
-    autocorrPeak = zeros(1, numFrames);
-    zcr = zeros(1, numFrames); 
-    
-    minLag = round(Fs / 500); maxLag = round(Fs / 80);  
-    
-    for i = 1:numFrames
-        startSample = (i-1)*hopLen + 1;
-        frame = x(startSample : startSample + frameLen - 1);
-        energy(i) = sum(frame.^2);
-        
-        [r, lags] = xcorr(frame, 'coeff');
-        zeroLagIdx = find(lags == 0);
-        searchWin = r(zeroLagIdx + minLag : zeroLagIdx + maxLag);
-        if ~isempty(searchWin), autocorrPeak(i) = max(searchWin); end
-        
-        zcr(i) = sum(abs(diff(frame > 0))) / (frameLen - 1);
+        fprintf('>>> Không rõ lệnh (Score: %.2f < %.2f)\n', maxPeak, minThreshold);
     end
-    
-    maxE = max(energy);
-    if maxE == 0, x_clean = x; return; end
-    
-    isVoiced = (autocorrPeak > 0.22) & (energy > 0.005 * maxE);
-    isUnvoiced = (energy > 0.002 * maxE) & (zcr > 0.25);
-    activeFrames = find(isVoiced | isUnvoiced);
-    
-    if ~isempty(activeFrames)
-        padSamples = round(Fs * 0.15); 
-        startSample = (activeFrames(1)-1)*hopLen + 1;
-        endSample = (activeFrames(end)-1)*hopLen + frameLen;
-        startIdx = max(1, startSample - padSamples);
-        endIdx = min(length(x), endSample + padSamples);
-        x_clean = x(startIdx:endIdx);
-    else
-        x_clean = x;
-    end
+
 end
 
-function y = normalizeSignal(x)
-    n = norm(x);
-    if n > 0, y = x / n; else, y = x; end
+%% =========================================================
+
+% CÁC HÀM XỬ LÝ TÍN HIỆU & ĐỒ HỌA
+
+% ==========================================================
+
+function cleanAudio = processAudio(audio, Fs)
+
+if size(audio, 2) > 1, audio = mean(audio, 2); end
+
+[b, a] = butter(4, [300 3800] / (Fs/2), 'bandpass');
+
+audio = filter(b, a, audio);
+
+
+maxVal = max(abs(audio));
+
+if maxVal > 0, audio = audio / maxVal; end
+
+
+noiseFloor = mean(audio(1:min(1600, floor(length(audio)*0.1))).^2);
+
+energy = audio.^2;
+
+speechIdx = find(energy > max(noiseFloor * 4, 0.003));
+
+
+if ~isempty(speechIdx)
+
+startIdx = max(1, speechIdx(1) - 600);
+
+endIdx = min(length(audio), speechIdx(end) + 600);
+
+cleanAudio = audio(startIdx:endIdx);
+
+else
+
+cleanAudio = audio;
+
 end
 
-function x_filtered = bandpassFilter(x, Fs)
-    try
-        x_filtered = bandpass(x, [300 3400], Fs);
-    catch
-        [b, a] = butter(2, [300 3400] / (Fs/2), 'bandpass');
-        x_filtered = filtfilt(b, a, x);
-    end
+
+maxClean = max(abs(cleanAudio));
+
+if maxClean > 0, cleanAudio = cleanAudio / maxClean; end
+
 end
+
+function features = extractRobustMFCC(audio, Fs)
+
+coeffs = mfcc(audio, Fs);
+
+features = (coeffs - mean(coeffs, 1)) ./ (std(coeffs, 0, 1) + eps);
+
+end
+
+function [body, front] = drawCar(x, y, angle, L, W)
+
+points = [-L/2 -W/2; L/2 -W/2; L/2 W/2; -L/2 W/2];
+
+R = [cosd(angle) -sind(angle); sind(angle) cosd(angle)];
+
+rotated = (R * points')';
+
+X = rotated(:, 1) + x; Y = rotated(:, 2) + y;
+
+body = patch(X, Y, 'b', 'EdgeColor', 'k', 'LineWidth', 2);
+
+frontX = x + cosd(angle) * L / 2; frontY = y + sind(angle) * L / 2;
+
+front = plot([x frontX], [y frontY], 'r', 'LineWidth', 3);
+
+end 
