@@ -31,13 +31,19 @@ function speechrecognition()
               'Position', [680, 370, 190, 45], 'FontSize', 10, 'FontWeight', 'bold', ...
               'BackgroundColor', [0.1 0.6 0.2], 'ForegroundColor', 'w', ...
               'Callback', @(~,~) testAudioCommand());
+    % Nút chạy thử trực tiếp hai file trái/phải
+    uicontrol('Style', 'pushbutton', 'String', 'TEST TRAI', ...
+              'Position', [680, 315, 90, 35], 'Callback', @(~,~) testAudioFile('trai_test.mp3'));
+    uicontrol('Style', 'pushbutton', 'String', 'TEST PHAI', ...
+              'Position', [780, 315, 90, 35], 'Callback', @(~,~) testAudioFile('phai_test.mp3'));
+
     % Các nút phím bấm mô phỏng nhanh (dùng để test giao diện)
-    uicontrol('Style', 'text', 'Position', [680, 310, 190, 20], 'String', '--- Test Nhanh Phím ---');
-    uicontrol('Style', 'pushbutton', 'String', 'TIẾN', 'Position', [740, 260, 70, 30], 'Callback', @(~,~) executeCommand('tien'));
-    uicontrol('Style', 'pushbutton', 'String', 'LÙI',  'Position', [740, 180, 70, 30], 'Callback', @(~,~) executeCommand('lui'));
-    uicontrol('Style', 'pushbutton', 'String', 'TRÁI', 'Position', [665, 220, 70, 30], 'Callback', @(~,~) executeCommand('trai'));
-    uicontrol('Style', 'pushbutton', 'String', 'PHẢI', 'Position', [815, 220, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
-    uicontrol('Style', 'pushbutton', 'String', 'DỪNG', 'Position', [740, 220, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
+    uicontrol('Style', 'text', 'Position', [680, 280, 190, 20], 'String', '--- Test Nhanh Phím ---');
+    uicontrol('Style', 'pushbutton', 'String', 'TIẾN', 'Position', [740, 240, 70, 30], 'Callback', @(~,~) executeCommand('tien'));
+    uicontrol('Style', 'pushbutton', 'String', 'LÙI',  'Position', [740, 160, 70, 30], 'Callback', @(~,~) executeCommand('lui'));
+    uicontrol('Style', 'pushbutton', 'String', 'TRÁI', 'Position', [665, 200, 70, 30], 'Callback', @(~,~) executeCommand('trai'));
+    uicontrol('Style', 'pushbutton', 'String', 'PHẢI', 'Position', [815, 200, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
+    uicontrol('Style', 'pushbutton', 'String', 'DỪNG', 'Position', [740, 200, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
     
     % --- HÀM THỰC THI DI CHUYỂN XE ---
     function executeCommand(cmd)
@@ -76,13 +82,33 @@ function speechrecognition()
         recordblocking(recorder, 2);
         recordedAudio = getaudiodata(recorder);
         recordedFs = 8000;
-        
-        % Gọi thuật toán nhận dạng lệnh DSP (Bản 2D Spectrogram kèm bộ lọc riêng TRÁI/PHẢI)
-        detectedCmd = speechDSPCore2D(recordedAudio, recordedFs);
+        processAudio(recordedAudio, recordedFs, 'Ghi âm');
+    end
+
+    function testAudioFile(fileName)
+        baseDir = fileparts(mfilename('fullpath'));
+        filePath = fullfile(baseDir, fileName);
+        if ~exist(filePath, 'file')
+            set(hStatus, 'String', sprintf('Không tìm thấy file:\n%s', fileName));
+            return;
+        end
+        try
+            [audio, sampleRate] = audioread(filePath);
+        catch audioError
+            set(hStatus, 'String', sprintf('Không đọc được %s:\n%s', fileName, audioError.message));
+            return;
+        end
+        processAudio(audio, sampleRate, fileName);
+    end
+
+    function processAudio(audio, sampleRate, sourceName)
+        detectedCmd = speechDSPCore2D(audio, sampleRate);
         if ~strcmp(detectedCmd, 'UNKNOWN')
             executeCommand(detectedCmd);
+            set(hStatus, 'String', sprintf('%s -> %s\n(x=%.1f, y=%.1f, θ=%.0f°)', ...
+                sourceName, upper(detectedCmd), carState.x, carState.y, carState.theta));
         else
-            set(hStatus, 'String', 'KHÔNG NHẬN DẠNG ĐƯỢC!\n(Đỉnh tương quan 2D quá thấp)');
+            set(hStatus, 'String', sprintf('%s -> KHÔNG NHẬN DẠNG ĐƯỢC', sourceName));
         end
     end
 end
@@ -191,10 +217,16 @@ function cmd = speechDSPCore2D(audioInput, inputFs)
     maxOthers = max(peaks(idxOthers));            % Đỉnh cao nhất của nhóm từ ngoài
     maxTraiPhai = max(peaks([idxTrai, idxPhai])); % Đỉnh cao nhất của nhóm vần ÁI
     
-    % Nếu nhóm ngoài (tiến, lùi, dừng) thắng thế -> Chọn luôn lệnh đó
-    if maxOthers >= maxTraiPhai
+    % Tránh đổi sang lệnh khác khi điểm nhóm trái/phải chỉ kém sát nút.
+    if maxOthers > maxTraiPhai && maxTraiPhai < 0.92 * maxOthers
         cmd = candidateCmd;
         fprintf('===> Kết quả: %s\n', upper(cmd));
+        return;
+    end
+
+    if maxOthers > maxTraiPhai
+        cmd = 'UNKNOWN';
+        fprintf('===> Điểm trái/phải và nhóm lệnh khác quá sát nhau; yêu cầu nói lại.\n');
         return;
     end
     
@@ -213,44 +245,60 @@ end
 % (Chỉ gọi khi vần ÁI dội lên, sử dụng Pre-emphasis và Hộp phụ âm dải cao)
 % =========================================================================
 function finalCmd = resolveTraiPhai(x_test, y_trai, y_phai, Fs)
-    % 1. Áp dụng Pre-emphasis riêng cho 3 tín hiệu để nhấn mạnh dải cao của phụ âm
-    x_test_pre = preEmphasisFilter(x_test, 0.96);
-    y_trai_pre = preEmphasisFilter(y_trai, 0.96);
-    y_phai_pre = preEmphasisFilter(y_phai, 0.96);
-    
-    % 2. Trích xuất Spectrogram sau khi Pre-emphasis
-    S_test = computeSpectrogram2D(x_test_pre, Fs);
-    S_trai = computeSpectrogram2D(y_trai_pre, Fs);
-    S_phai = computeSpectrogram2D(y_phai_pre, Fs);
-    
-    % 3. Cắt hộp phụ âm: Dải 1000 - 3400 Hz, 100 ms đầu (~12 khung)
-    binStart = round(1000 / (Fs / 512));
-    binEnd   = round(3400 / (Fs / 512));
-    
-    headTest = min(size(S_test, 2), 12);
-    headTrai = min(size(S_trai, 2), 12);
-    headPhai = min(size(S_phai, 2), 12);
-    
-    box_test = S_test(binStart:binEnd, 1:headTest);
-    box_trai = S_trai(binStart:binEnd, 1:headTrai);
-    box_phai = S_phai(binStart:binEnd, 1:headPhai);
-    
-    % 4. So khớp trượt ngắn cục bộ bằng normxcorr2 trên hộp phụ âm
-    C_trai = normxcorr2(box_trai, box_test);
-    C_phai = normxcorr2(box_phai, box_test);
-    
-    scoreTrai = max(C_trai(:));
-    scorePhai = max(C_phai(:));
-    
-    fprintf('--- [XỬ LÝ RIÊNG] So khớp phụ âm dải cao -> TRAI: %.3f | PHAI: %.3f\n', scoreTrai, scorePhai);
-    
-    if scoreTrai >= scorePhai
+    S_test = computeTraiPhaiFeatures(x_test, Fs);
+    S_trai = computeTraiPhaiFeatures(y_trai, Fs);
+    S_phai = computeTraiPhaiFeatures(y_phai, Fs);
+
+    if isempty(S_test) || isempty(S_trai) || isempty(S_phai)
+        finalCmd = 'UNKNOWN';
+        return;
+    end
+
+    [distanceTrai, pathTestTrai] = dtw(S_test, S_trai, 'euclidean');
+    [distancePhai, pathTestPhai] = dtw(S_test, S_phai, 'euclidean');
+    scoreTrai = distanceTrai / numel(pathTestTrai);
+    scorePhai = distancePhai / numel(pathTestPhai);
+
+    fprintf('--- [DTW PHỤ ÂM] Khoảng cách -> TRAI: %.3f | PHAI: %.3f\n', scoreTrai, scorePhai);
+
+    if abs(scoreTrai - scorePhai) / max(scoreTrai, scorePhai) < 0.08
+        finalCmd = 'UNKNOWN';
+        fprintf('===> Hai điểm quá gần nhau, không đủ tin cậy để phân biệt.\n');
+    elseif scoreTrai < scorePhai
         finalCmd = 'trai';
         fprintf('===> QUYẾT ĐỊNH CUỐI CÙNG: ** TRÁI **\n');
     else
         finalCmd = 'phai';
         fprintf('===> QUYẾT ĐỊNH CUỐI CÙNG: ** PHẢI **\n');
     end
+end
+
+function S = computeTraiPhaiFeatures(x, Fs)
+    x = x(:);
+    frameLen = round(Fs * 0.02);
+    energy = movmean(x .^ 2, frameLen);
+    maxEnergy = max(energy);
+    if isempty(maxEnergy) || maxEnergy <= eps
+        S = [];
+        return;
+    end
+
+    onset = find(energy > 0.02 * maxEnergy, 1, 'first');
+    if isempty(onset)
+        S = [];
+        return;
+    end
+    startIdx = max(1, onset - round(Fs * 0.04));
+    endIdx = min(numel(x), onset + round(Fs * 0.3));
+    x = preEmphasisFilter(x(startIdx:endIdx), 0.96);
+
+    winLen = round(Fs * 0.035);
+    overlap = round(winLen * 0.6);
+    nfft = 512;
+    [S, frequencies] = spectrogram(x, winLen, overlap, nfft, Fs);
+    band = frequencies >= 300 & frequencies <= 3400;
+    S = 20 * log10(abs(S(band, :)) + 1e-6);
+    S = (S - mean(S, 1)) ./ (std(S, 0, 1) + 1e-6);
 end
 
 % --- HÀM PHỤ 1: TRÍCH XUẤT MA TRẬN PHỔ 2D ---
