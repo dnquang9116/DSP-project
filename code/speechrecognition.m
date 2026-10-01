@@ -1,114 +1,169 @@
 function speechrecognition()
 % GIAO DIỆN MÔ PHỎNG XE 2D ĐIỀU KHIỂN BẰNG GIỌNG NÓI 
 % Sử dụng lõi 2D Spectrogram Cross-Correlation chống nhiễu pha và nhận diện phổ
+% Cần: Signal Processing Toolbox (spectrogram, resample, bandpass) và
+%      Image Processing Toolbox (normxcorr2). Lưu file ở dạng UTF-8.
+
+    targetFs = 16000;   % Tần số lấy mẫu dùng chung cho ghi âm và nhận dạng
+
+    % [SỬA 3] mfilename có thể rỗng (Run Section / dán vào Command Window)
+    baseDir = fileparts(mfilename('fullpath'));
+    if isempty(baseDir), baseDir = pwd; end
+
     % 1. Khởi tạo Cửa sổ Đồ họa (Figure & Axes)
     fig = figure('Name', 'Mô Phỏng Xe Điều Khiển Bằng Giọng Nói 2D (Spectrogram)', ...
                  'NumberTitle', 'off', 'Position', [150, 100, 900, 650], ...
                  'Color', [0.94 0.94 0.94]);
+
     ax = axes('Parent', fig, 'Position', [0.08, 0.1, 0.65, 0.82]);
     hold(ax, 'on'); grid(ax, 'on');
+    axis(ax, 'equal');                 % [SỬA 3] Trục vuông tỉ lệ, xe và góc quay không bị méo
     axis(ax, [-10 10 -10 10]);
     xlabel(ax, 'Tọa độ X (m)', 'FontWeight', 'bold'); 
     ylabel(ax, 'Tọa độ Y (m)', 'FontWeight', 'bold');
     title(ax, 'BẢN ĐỒ MÔ PHỎNG DI CHUYỂN CỦA XE', 'FontSize', 12, 'Color', [0 0.3 0.6]);
+
     % Trạng thái ban đầu của xe: x=0, y=0, theta = 90 độ (hướng lên trên)
     carState = struct('x', 0, 'y', 0, 'theta', 90);
+
     % Vẽ xe và đường vết di chuyển (Trajectory)
     hCar = drawCar(ax, carState);
     hTrail = plot(ax, carState.x, carState.y, 'r--', 'LineWidth', 1.5);
     trailX = [carState.x];
     trailY = [carState.y];
+
     % 2. Khung Bảng Điều Khiển & Trạng Thái (Bên phải)
     uicontrol('Style', 'text', 'Position', [680, 520, 200, 30], ...
               'String', 'BẢNG ĐIỀU KHIỂN', 'FontSize', 11, 'FontWeight', 'bold', ...
               'BackgroundColor', [0.94 0.94 0.94]);
+
     hStatus = uicontrol('Style', 'text', 'Position', [670, 440, 210, 60], ...
                         'FontSize', 10, 'FontWeight', 'bold', 'ForegroundColor', [0.8 0 0], ...
                         'String', 'Trạng thái: Đang chờ lệnh...', ...
-                        'BackgroundColor', [1 1 0.9], 'Style', 'text');
-    % Nút ghi âm trực tiếp từ microphone
-    uicontrol('Style', 'pushbutton', 'String', 'GHI AM GIONG NOI', ...
+                        'BackgroundColor', [1 1 0.9]);
+
+    % Nút ghi âm trực tiếp từ microphone (lưu handle để khóa/mở nút khi đang ghi)
+    hRecBtn = uicontrol('Style', 'pushbutton', 'String', 'GHI ÂM GIỌNG NÓI', ...
               'Position', [680, 370, 190, 45], 'FontSize', 10, 'FontWeight', 'bold', ...
               'BackgroundColor', [0.1 0.6 0.2], 'ForegroundColor', 'w', ...
               'Callback', @(~,~) testAudioCommand());
-    % Nút chạy thử trực tiếp hai file trái/phải
-    uicontrol('Style', 'pushbutton', 'String', 'TEST TRAI', ...
-              'Position', [680, 315, 90, 35], 'Callback', @(~,~) testAudioFile('trai_test.mp3'));
-    uicontrol('Style', 'pushbutton', 'String', 'TEST PHAI', ...
-              'Position', [780, 315, 90, 35], 'Callback', @(~,~) testAudioFile('phai_test.mp3'));
 
     % Các nút phím bấm mô phỏng nhanh (dùng để test giao diện)
-    uicontrol('Style', 'text', 'Position', [680, 280, 190, 20], 'String', '--- Test Nhanh Phím ---');
-    uicontrol('Style', 'pushbutton', 'String', 'TIẾN', 'Position', [740, 240, 70, 30], 'Callback', @(~,~) executeCommand('tien'));
-    uicontrol('Style', 'pushbutton', 'String', 'LÙI',  'Position', [740, 160, 70, 30], 'Callback', @(~,~) executeCommand('lui'));
-    uicontrol('Style', 'pushbutton', 'String', 'TRÁI', 'Position', [665, 200, 70, 30], 'Callback', @(~,~) executeCommand('trai'));
-    uicontrol('Style', 'pushbutton', 'String', 'PHẢI', 'Position', [815, 200, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
-    uicontrol('Style', 'pushbutton', 'String', 'DỪNG', 'Position', [740, 200, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
-    
+    uicontrol('Style', 'text', 'Position', [680, 310, 190, 20], 'String', '--- Test Nhanh Phím ---');
+    uicontrol('Style', 'pushbutton', 'String', 'TIẾN', 'Position', [740, 260, 70, 30], 'Callback', @(~,~) executeCommand('tien'));
+    uicontrol('Style', 'pushbutton', 'String', 'LÙI',  'Position', [740, 180, 70, 30], 'Callback', @(~,~) executeCommand('lui'));
+    uicontrol('Style', 'pushbutton', 'String', 'TRÁI', 'Position', [665, 220, 70, 30], 'Callback', @(~,~) executeCommand('trai'));
+    uicontrol('Style', 'pushbutton', 'String', 'PHẢI', 'Position', [815, 220, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
+    uicontrol('Style', 'pushbutton', 'String', 'DỪNG', 'Position', [740, 220, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
+
+    % [SỬA 3] Kiểm tra toolbox và nạp + tiền xử lý 5 template MỘT LẦN khi khởi động
+    missingFcn = {};
+    for fn = {'spectrogram', 'resample', 'normxcorr2'}
+        if isempty(which(fn{1})), missingFcn{end+1} = fn{1}; end %#ok<AGROW>
+    end
+    templates = loadTemplates(baseDir, targetFs);
+    if ~isempty(missingFcn)
+        set(hStatus, 'String', [{'Thiếu hàm (toolbox):'}, missingFcn]);
+    elseif ~isempty(templates.missing)
+        set(hStatus, 'String', [{'Thiếu/lỗi file mẫu:'}, templates.missing]);
+    end
+
     % --- HÀM THỰC THI DI CHUYỂN XE ---
     function executeCommand(cmd)
         stepSize = 1.5; % Khoảng dịch chuyển mỗi bước (m)
         rotAngle = 30;  % Góc quay mỗi bước (độ)
+        mapLim = 9.5;   % [SỬA 3] Giới hạn bản đồ, xe không chạy ra ngoài
+
+        newX = carState.x;
+        newY = carState.y;
+
         switch lower(cmd)
             case 'tien'
-                carState.x = carState.x + stepSize * cosd(carState.theta);
-                carState.y = carState.y + stepSize * sind(carState.theta);
+                newX = carState.x + stepSize * cosd(carState.theta);
+                newY = carState.y + stepSize * sind(carState.theta);
+                statusText = 'Lệnh: TIẾN';
             case 'lui'
-                carState.x = carState.x - stepSize * cosd(carState.theta);
-                carState.y = carState.y - stepSize * sind(carState.theta);
+                newX = carState.x - stepSize * cosd(carState.theta);
+                newY = carState.y - stepSize * sind(carState.theta);
+                statusText = 'Lệnh: LÙI';
             case 'trai'
-                carState.theta = carState.theta + rotAngle;
+                carState.theta = mod(carState.theta + rotAngle, 360); % [SỬA 3] theta trong [0,360)
+                statusText = 'Lệnh: RẼ TRÁI';
             case 'phai'
-                carState.theta = carState.theta - rotAngle;
+                carState.theta = mod(carState.theta - rotAngle, 360);
+                statusText = 'Lệnh: RẼ PHẢI';
             case 'dung'
-                % Dừng xe
+                statusText = 'Lệnh: DỪNG XE';
+            otherwise
+                set(hStatus, 'String', {'Lệnh không hợp lệ:', upper(char(cmd))});
+                return;
         end
-        % Cập nhật bảng trạng thái
-        set(hStatus, 'String', sprintf('Đã nhận dạng: "%s"\n(x=%.1f, y=%.1f, θ=%.0f°)', ...
-            upper(cmd), carState.x, carState.y, carState.theta));
-        % Cập nhật quỹ đạo di chuyển
-        trailX(end+1) = carState.x;
-        trailY(end+1) = carState.y;
-        set(hTrail, 'XData', trailX, 'YData', trailY);
+
+        % [SỬA 3] Chặn xe trong bản đồ
+        clampX = min(max(newX, -mapLim), mapLim);
+        clampY = min(max(newY, -mapLim), mapLim);
+        hitWall = (clampX ~= newX) || (clampY ~= newY);
+        carState.x = clampX;
+        carState.y = clampY;
+
+        % Cập nhật bảng trạng thái (cell array để xuống dòng)
+        lines = { statusText; ...
+            sprintf('(x=%.1f, y=%.1f, θ=%.0f°)', carState.x, carState.y, carState.theta)};
+        if hitWall, lines{end+1} = 'Chạm biên bản đồ!'; end
+        set(hStatus, 'String', lines);
+
+        % Cập nhật quỹ đạo (lệnh DỪNG không thêm điểm trùng)
+        if ~strcmpi(cmd, 'dung')
+            trailX(end+1) = carState.x;
+            trailY(end+1) = carState.y;
+            set(hTrail, 'XData', trailX, 'YData', trailY);
+        end
+
         % Cập nhật hình vẽ xe trên đồ thị
         updateCarPlot(hCar, carState);
     end
-    
-    % --- HÀM ĐỌC FILE ÂM THANH & CHẠY THUẬT TOÁN DSP ---
+
+    % --- HÀM GHI ÂM & CHẠY THUẬT TOÁN DSP ---
     function testAudioCommand()
-        set(hStatus, 'String', 'Dang ghi am trong 2 giay...');
+        % Khóa nút để tránh bấm chồng; tự mở lại khi hàm kết thúc
+        set(hRecBtn, 'Enable', 'off');
+        restoreBtn = onCleanup(@() set(hRecBtn, 'Enable', 'on')); %#ok<NASGU>
+
+        % [SỬA 3] Không có template nào thì không cần ghi âm
+        if all(cellfun(@isempty, templates.S))
+            set(hStatus, 'String', {'Không có file mẫu hợp lệ!', 'Kiểm tra tien/lui/trai/phai/dung.wav'});
+            return;
+        end
+
+        set(hStatus, 'String', 'Chuẩn bị... (bỏ tay khỏi chuột)');
         drawnow;
-        recorder = audiorecorder(8000, 16, 1);
-        recordblocking(recorder, 2);
-        recordedAudio = getaudiodata(recorder);
-        recordedFs = 8000;
-        processAudio(recordedAudio, recordedFs, 'Ghi âm');
-    end
+        pause(0.6); % chờ tiếng click tắt hẳn
 
-    function testAudioFile(fileName)
-        baseDir = fileparts(mfilename('fullpath'));
-        filePath = fullfile(baseDir, fileName);
-        if ~exist(filePath, 'file')
-            set(hStatus, 'String', sprintf('Không tìm thấy file:\n%s', fileName));
-            return;
-        end
         try
-            [audio, sampleRate] = audioread(filePath);
-        catch audioError
-            set(hStatus, 'String', sprintf('Không đọc được %s:\n%s', fileName, audioError.message));
+            recorder = audiorecorder(targetFs, 16, 1);
+        catch ME
+            set(hStatus, 'String', {'Không mở được micro:', ME.message});
             return;
         end
-        processAudio(audio, sampleRate, fileName);
-    end
 
-    function processAudio(audio, sampleRate, sourceName)
-        detectedCmd = speechDSPCore2D(audio, sampleRate);
+        set(hStatus, 'String', 'NÓI NGAY! (đang ghi 2 giây)');
+        drawnow;
+
+        try
+            recordblocking(recorder, 2);
+            recordedAudio = getaudiodata(recorder);
+        catch ME
+            set(hStatus, 'String', {'Lỗi khi ghi âm:', ME.message});
+            return;
+        end
+
+        % Gọi thuật toán nhận dạng lệnh DSP (Bản 2D Spectrogram)
+        detectedCmd = speechDSPCore2D(recordedAudio, targetFs, templates);
+
         if ~strcmp(detectedCmd, 'UNKNOWN')
             executeCommand(detectedCmd);
-            set(hStatus, 'String', sprintf('%s -> %s\n(x=%.1f, y=%.1f, θ=%.0f°)', ...
-                sourceName, upper(detectedCmd), carState.x, carState.y, carState.theta));
         else
-            set(hStatus, 'String', sprintf('%s -> KHÔNG NHẬN DẠNG ĐƯỢC', sourceName));
+            set(hStatus, 'String', {'KHÔNG NHẬN DẠNG ĐƯỢC!', '(Điểm thấp hoặc hai lệnh quá sát nhau)'});
         end
     end
 end
@@ -116,227 +171,180 @@ end
 % =========================================================================
 % HÀM VẼ VÀ CẬP NHẬT HÌNH DẠNG XE 2D
 % =========================================================================
-function hCar = drawCar(ax, state)
+% [SỬA 3] Gộp phần hình học dùng chung cho drawCar và updateCarPlot
+function [rotCar, rotArrow] = carPolygons(state)
     w = 0.8; l = 1.4; % Kích thước rộng/dài của xe
     carShape = [-w/2, -l/2; w/2, -l/2; w/2, l/2; -w/2, l/2]';
     arrowShape = [0, l/2; -w/3, 0; w/3, 0]'; % Mũi tên chỉ hướng xe
+
     R = [cosd(state.theta-90), -sind(state.theta-90); sind(state.theta-90), cosd(state.theta-90)];
     rotCar = R * carShape + [state.x; state.y];
     rotArrow = R * arrowShape + [state.x; state.y];
+end
+
+function hCar = drawCar(ax, state)
+    [rotCar, rotArrow] = carPolygons(state);
     hCar.body = fill(ax, rotCar(1,:), rotCar(2,:), [0.2 0.4 0.8], 'FaceAlpha', 0.8);
     hCar.arrow = fill(ax, rotArrow(1,:), rotArrow(2,:), [1 0.8 0]);
 end
 
 function updateCarPlot(hCar, state)
-    w = 0.8; l = 1.4;
-    carShape = [-w/2, -l/2; w/2, -l/2; w/2, l/2; -w/2, l/2]';
-    arrowShape = [0, l/2; -w/3, 0; w/3, 0]';
-    R = [cosd(state.theta-90), -sind(state.theta-90); sind(state.theta-90), cosd(state.theta-90)];
-    rotCar = R * carShape + [state.x; state.y];
-    rotArrow = R * arrowShape + [state.x; state.y];
+    [rotCar, rotArrow] = carPolygons(state);
     set(hCar.body, 'XData', rotCar(1,:), 'YData', rotCar(2,:));
     set(hCar.arrow, 'XData', rotArrow(1,:), 'YData', rotArrow(2,:));
     drawnow;
 end
 
 % =========================================================================
+% NẠP VÀ TIỀN XỬ LÝ TEMPLATE (CHỈ CHẠY MỘT LẦN)
+% =========================================================================
+function tpl = loadTemplates(baseDir, targetFs)
+    templateNames = {'tien.wav', 'lui.wav', 'trai.wav', 'phai.wav', 'dung.wav'};
+    tpl.cmdNames = {'tien', 'lui', 'trai', 'phai', 'dung'};
+    tpl.Fs = targetFs;
+    tpl.S = cell(1, numel(templateNames));   % phổ đã chuẩn hóa; rỗng nếu thiếu
+    tpl.missing = {};
+    minLen = round(targetFs * 0.12);
+
+    for k = 1:numel(templateNames)
+        f = fullfile(baseDir, templateNames{k});
+        if ~exist(f, 'file')
+            tpl.missing{end+1} = templateNames{k}; %#ok<AGROW>
+            continue;
+        end
+        try
+            [y, Fs_y] = audioread(f);
+        catch
+            tpl.missing{end+1} = [templateNames{k} ' (lỗi đọc)']; %#ok<AGROW>
+            continue;
+        end
+        if size(y, 2) > 1, y = mean(y, 2); end     % [SỬA 3] thống nhất với file test
+        if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
+        y = bandpassFilter(y, targetFs);
+        y = removeSilenceAutocorr(y, targetFs);
+        if length(y) < minLen
+            tpl.missing{end+1} = [templateNames{k} ' (quá ngắn)']; %#ok<AGROW>
+            continue;
+        end
+        tpl.S{k} = computeSpectrogram2D(y, targetFs);
+    end
+end
+
+% =========================================================================
 % LÕI THUẬT TOÁN NHẬN DẠNG 2D SPECTROGRAM
 % =========================================================================
-function cmd = speechDSPCore2D(audioInput, inputFs)
-    baseDir = fileparts(mfilename('fullpath'));
-    if isempty(baseDir), baseDir = pwd; end
-    
-    templateNames = {'tien.wav', 'lui.wav', 'trai.wav', 'phai.wav', 'dung.wav'};
-    templateFiles = fullfile(baseDir, templateNames);
-    cmdNames = {'tien', 'lui', 'trai', 'phai', 'dung'};
-    targetFs = 8000;
-    minThresh = 0.45; % Ngưỡng tương quan 2D tối thiểu của bạn
-    
+function cmd = speechDSPCore2D(audioInput, inputFs, templates)
+    cmdNames = templates.cmdNames;
+    targetFs = templates.Fs;
+    minThresh = 0.45;                 % Ngưỡng tương quan 2D tối thiểu
+    minMargin = 0.05;                 % Cách biệt tối thiểu giữa hạng 1 và hạng 2
+    minLen = round(targetFs * 0.12);  % Độ dài tối thiểu (120 ms)
+
     x = audioInput;
     Fs = inputFs;
     if size(x, 2) > 1, x = mean(x, 2); end
     if Fs ~= targetFs, x = resample(x, targetFs, Fs); end
-    
+
     % Tiền xử lý File Test
     x = bandpassFilter(x, targetFs);
     x = removeSilenceAutocorr(x, targetFs);
-    
-    if length(x) < round(targetFs * 0.12)
+
+    if length(x) < minLen
+        fprintf('Tín hiệu quá ngắn sau khi cắt khoảng lặng -> UNKNOWN\n');
         cmd = 'UNKNOWN';
         return;
     end
-    
-    S_test = computeSpectrogram2D(x, targetFs); % Trích xuất phổ 2D tự nhiên
-    peaks = zeros(1, numel(templateFiles));
-    templatesRaw = cell(1, numel(templateFiles));
-    
-    for k = 1:numel(templateFiles)
-        if ~exist(templateFiles{k}, 'file'), continue; end
-        
-        [y, Fs_y] = audioread(templateFiles{k});
-        y = y(:,1);
-        if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
-        
-        % Tiền xử lý File Template
-        y = bandpassFilter(y, targetFs);
-        y = removeSilenceAutocorr(y, targetFs);
-        templatesRaw{k} = y; % Lưu lại tín hiệu sạch để xử lý riêng TRÁI/PHẢI nếu cần
-        
-        S_template = computeSpectrogram2D(y, targetFs);
-        
-        % Tính 2D Cross-Correlation với điều kiện chống lỗi size
+    S_test = computeSpectrogram2D(x, targetFs); % Trích xuất phổ 2D
+
+    peaks = zeros(1, numel(cmdNames));
+
+    for k = 1:numel(cmdNames)
+        S_template = templates.S{k};        % [SỬA 3] dùng phổ đã tính sẵn
+        if isempty(S_template), continue; end
+
+        % Cái ngắn hơn (theo thời gian) làm template, cái dài hơn làm ảnh
         if size(S_test, 2) < size(S_template, 2)
-            C2D = normxcorr2(S_test, S_template);
+            T = S_test;     A = S_template;
         else
-            C2D = normxcorr2(S_template, S_test);
+            T = S_template; A = S_test;
         end
-        
+        C2D = normxcorr2(T, A);
+        % Chỉ lấy vùng "valid": template nằm trọn trong ảnh
+        C2D = C2D(size(T,1):size(A,1), size(T,2):size(A,2));
+
         peaks(k) = max(C2D(:)); % Lưu lại đỉnh tương quan cực đại
     end
-    
-    [maxVal, idx] = max(peaks);
-    candidateCmd = cmdNames{idx};
-    
-    % Log đối soát điểm tầng 1
-    fprintf('\n--- ĐIỂM TƯƠNG QUAN NORMXCORR2 ---\n');
-    fprintf('TIEN: %.2f | LUI: %.2f | TRAI: %.2f | PHAI: %.2f | DUNG: %.2f\n', ...
-        peaks(1), peaks(2), peaks(3), peaks(4), peaks(5));
-    
-    if maxVal < minThresh
+
+    % In điểm để chỉnh ngưỡng bằng dữ liệu thật
+    fprintf('TIEN: %.2f | LUI: %.2f | TRAI: %.2f | PHAI: %.2f | DUNG: %.2f\n', peaks);
+
+    % Quyết định: vượt ngưỡng VÀ hạng 1 hơn hạng 2 đủ xa
+    [sortedPeaks, order] = sort(peaks, 'descend');
+    if sortedPeaks(1) < minThresh
         cmd = 'UNKNOWN';
-        return;
-    end
-    
-    % ---------------------------------------------------------------------
-    % KHỐI XỬ LÝ RIÊNG BIỆT DÀNH CHO CẶP "TRÁI" VÀ "PHẢI"
-    % ---------------------------------------------------------------------
-    idxTrai = 3;
-    idxPhai = 4;
-    idxOthers = [1, 2, 5]; % tien, lui, dung
-    
-    maxOthers = max(peaks(idxOthers));            % Đỉnh cao nhất của nhóm từ ngoài
-    maxTraiPhai = max(peaks([idxTrai, idxPhai])); % Đỉnh cao nhất của nhóm vần ÁI
-    
-    % Tránh đổi sang lệnh khác khi điểm nhóm trái/phải chỉ kém sát nút.
-    if maxOthers > maxTraiPhai && maxTraiPhai < 0.92 * maxOthers
-        cmd = candidateCmd;
-        fprintf('===> Kết quả: %s\n', upper(cmd));
-        return;
-    end
-
-    if maxOthers > maxTraiPhai
+    elseif (sortedPeaks(1) - sortedPeaks(2)) < minMargin
+        fprintf('Hạng 1 (%s) và hạng 2 (%s) quá sát nhau -> UNKNOWN\n', ...
+                upper(cmdNames{order(1)}), upper(cmdNames{order(2)}));
         cmd = 'UNKNOWN';
-        fprintf('===> Điểm trái/phải và nhóm lệnh khác quá sát nhau; yêu cầu nói lại.\n');
-        return;
-    end
-    
-    % Khi vần "ÁI" dội lên làm TRÁI hoặc PHẢI dẫn đầu -> Chuyển vào hàm xử lý riêng
-    if ~isempty(templatesRaw{idxTrai}) && ~isempty(templatesRaw{idxPhai})
-        fprintf('===> Phát hiện vần ÁI dẫn đầu (%.2f > %.2f) -> Kích hoạt xử lý riêng biệt TRÁI/PHẢI...\n', ...
-            maxTraiPhai, maxOthers);
-        cmd = resolveTraiPhai(x, templatesRaw{idxTrai}, templatesRaw{idxPhai}, targetFs);
     else
-        cmd = candidateCmd;
+        cmd = cmdNames{order(1)};
     end
-end
-
-% =========================================================================
-% HÀM XỬ LÝ RIÊNG BIỆT: PHÂN TÁCH PHỤ ÂM ĐẦU TRÁI vs PHẢI
-% (Chỉ gọi khi vần ÁI dội lên, sử dụng Pre-emphasis và Hộp phụ âm dải cao)
-% =========================================================================
-function finalCmd = resolveTraiPhai(x_test, y_trai, y_phai, Fs)
-    S_test = computeTraiPhaiFeatures(x_test, Fs);
-    S_trai = computeTraiPhaiFeatures(y_trai, Fs);
-    S_phai = computeTraiPhaiFeatures(y_phai, Fs);
-
-    if isempty(S_test) || isempty(S_trai) || isempty(S_phai)
-        finalCmd = 'UNKNOWN';
-        return;
-    end
-
-    [distanceTrai, pathTestTrai] = dtw(S_test, S_trai, 'euclidean');
-    [distancePhai, pathTestPhai] = dtw(S_test, S_phai, 'euclidean');
-    scoreTrai = distanceTrai / numel(pathTestTrai);
-    scorePhai = distancePhai / numel(pathTestPhai);
-
-    fprintf('--- [DTW PHỤ ÂM] Khoảng cách -> TRAI: %.3f | PHAI: %.3f\n', scoreTrai, scorePhai);
-
-    if abs(scoreTrai - scorePhai) / max(scoreTrai, scorePhai) < 0.08
-        finalCmd = 'UNKNOWN';
-        fprintf('===> Hai điểm quá gần nhau, không đủ tin cậy để phân biệt.\n');
-    elseif scoreTrai < scorePhai
-        finalCmd = 'trai';
-        fprintf('===> QUYẾT ĐỊNH CUỐI CÙNG: ** TRÁI **\n');
-    else
-        finalCmd = 'phai';
-        fprintf('===> QUYẾT ĐỊNH CUỐI CÙNG: ** PHẢI **\n');
-    end
-end
-
-function S = computeTraiPhaiFeatures(x, Fs)
-    x = x(:);
-    frameLen = round(Fs * 0.02);
-    energy = movmean(x .^ 2, frameLen);
-    maxEnergy = max(energy);
-    if isempty(maxEnergy) || maxEnergy <= eps
-        S = [];
-        return;
-    end
-
-    onset = find(energy > 0.02 * maxEnergy, 1, 'first');
-    if isempty(onset)
-        S = [];
-        return;
-    end
-    startIdx = max(1, onset - round(Fs * 0.04));
-    endIdx = min(numel(x), onset + round(Fs * 0.3));
-    x = preEmphasisFilter(x(startIdx:endIdx), 0.96);
-
-    winLen = round(Fs * 0.035);
-    overlap = round(winLen * 0.6);
-    nfft = 512;
-    [S, frequencies] = spectrogram(x, winLen, overlap, nfft, Fs);
-    band = frequencies >= 300 & frequencies <= 3400;
-    S = 20 * log10(abs(S(band, :)) + 1e-6);
-    S = (S - mean(S, 1)) ./ (std(S, 0, 1) + 1e-6);
 end
 
 % --- HÀM PHỤ 1: TRÍCH XUẤT MA TRẬN PHỔ 2D ---
 function S_norm = computeSpectrogram2D(x, Fs)
-    winLen = round(Fs * 0.035);   % Cửa sổ 30 ms
-    overlap = round(winLen * 0.6); % Độ chồng lấp 70%
+    winLen = round(Fs * 0.030);   % Cửa sổ 30 ms
+    overlap = round(winLen * 0.7); % Độ chồng lấp 70%
     nfft = 512;                   % Số điểm FFT
-    [S, ~, ~] = spectrogram(x, winLen, overlap, nfft, Fs);
+
+    [S, F, ~] = spectrogram(x, winLen, overlap, nfft, Fs);
+
+    % Chỉ giữ dải tần trong băng lọc, bỏ vùng ngoài băng thông
+    S = S(F >= 150 & F <= 7000, :);
     S_dB = 20 * log10(abs(S) + 1e-6); % Chuyển đổi sang Logarit (dB)
+
+    % Cắt dải động 45 dB (giống lúc vẽ) để nền nhiễu không chi phối z-score
+    S_dB = max(S_dB, max(S_dB(:)) - 45);
+
     % Chuẩn hóa Ma trận Phổ (Zero-Mean & Unit Variance)
     S_norm = (S_dB - mean(S_dB(:))) / (std(S_dB(:)) + 1e-6);
 end
 
 % --- HÀM PHỤ 2: VAD AUTOCORRELATION ---
 function x_clean = removeSilenceAutocorr(x, Fs)
+    x = x(:);
     frameLen = max(1, round(Fs * 0.02));
     hopLen = round(frameLen / 2);
     numFrames = floor((length(x) - frameLen) / hopLen) + 1;
     if numFrames < 1, x_clean = x; return; end
+
     energy = zeros(1, numFrames);
     autocorrPeak = zeros(1, numFrames);
-    minLag = round(Fs / 500); maxLag = round(Fs / 80);
+    minLag = round(Fs / 500);
+    maxLag = min(round(Fs / 80), frameLen - 1);
+    nfftA = 2^nextpow2(2 * frameLen);   % [SỬA 3] Tự tương quan bằng FFT, nhanh hơn xcorr
+
     for i = 1:numFrames
         startSample = (i-1)*hopLen + 1;
         frame = x(startSample : startSample + frameLen - 1);
         energy(i) = sum(frame.^2);
-        [r, lags] = xcorr(frame, 'coeff');
-        zeroIdx = find(lags == 0);
-        searchWin = r(zeroIdx + minLag : zeroIdx + maxLag);
-        if ~isempty(searchWin), autocorrPeak(i) = max(searchWin); end
+
+        if energy(i) > 0 && minLag < maxLag
+            r = real(ifft(abs(fft(frame, nfftA)).^2));
+            r = r / r(1);                                   % chuẩn hóa 'coeff' (lag 0 = 1)
+            autocorrPeak(i) = max(r(minLag+1 : maxLag+1));  % lag L nằm ở chỉ số L+1
+        end
     end
+
     maxE = max(energy);
     if maxE == 0, x_clean = x; return; end
+
     isVoiced = (autocorrPeak > 0.3) & (energy > 0.005 * maxE);
     isUnvoiced = (energy > 0.008 * maxE);
     activeFrames = find(isVoiced | isUnvoiced);
+
     if ~isempty(activeFrames)
-        padSamples = round(Fs * 0.05); % Lề 50ms tránh cụt phụ âm
+        padSamples = round(Fs * 0.05); % Lề 50ms
         startIdx = max(1, (activeFrames(1)-1)*hopLen + 1 - padSamples);
         endIdx = min(length(x), (activeFrames(end)-1)*hopLen + frameLen + padSamples);
         x_clean = x(startIdx:endIdx);
@@ -347,16 +355,11 @@ end
 
 % --- HÀM PHỤ 3: BANDPASS FILTER ---
 function x_filtered = bandpassFilter(x, Fs)
+    % Băng thông 150-7000 Hz (cần Fs >= 16 kHz); nhánh catch dùng cùng dải
     try
-        x_filtered = bandpass(x, [150 3400], Fs);
+        x_filtered = bandpass(x, [150 7000], Fs);
     catch
-        [b, a] = butter(2, [150 3400] / (Fs/2), 'bandpass');
+        [b, a] = butter(2, [150 7000] / (Fs/2), 'bandpass');
         x_filtered = filtfilt(b, a, x);
     end
-end
-
-% --- HÀM PHỤ 4: BỘ LỌC PRE-EMPHASIS CHO RIÊNG CẶP TRÁI / PHẢI ---
-function y = preEmphasisFilter(x, alpha)
-    if nargin < 2, alpha = 0.96; end
-    y = filter([1, -alpha], 1, x);
 end
