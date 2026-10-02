@@ -1,0 +1,2339 @@
+﻿commit 4521551 | 2026-10-01 | total fix
+
+diff --git a/code/speechrecognition.m b/code/speechrecognition.m
+index 981da6d..51e3de2 100644
+--- a/code/speechrecognition.m
++++ b/code/speechrecognition.m
+@@ -1,114 +1,169 @@
+ function speechrecognition()
+ % GIAO DIß╗åN M├ö PHß╗ÄNG XE 2D ─ÉIß╗ÇU KHIß╗éN Bß║░NG GIß╗îNG N├ôI 
+ % Sß╗¡ dß╗Ñng l├╡i 2D Spectrogram Cross-Correlation chß╗æng nhiß╗àu pha v├á nhß║¡n diß╗çn phß╗ò
++% Cß║ºn: Signal Processing Toolbox (spectrogram, resample, bandpass) v├á
++%      Image Processing Toolbox (normxcorr2). L╞░u file ß╗ƒ dß║íng UTF-8.
++
++    targetFs = 16000;   % Tß║ºn sß╗æ lß║Ñy mß║½u d├╣ng chung cho ghi ├óm v├á nhß║¡n dß║íng
++
++    % [Sß╗¼A 3] mfilename c├│ thß╗â rß╗ùng (Run Section / d├ín v├áo Command Window)
++    baseDir = fileparts(mfilename('fullpath'));
++    if isempty(baseDir), baseDir = pwd; end
++
+     % 1. Khß╗ƒi tß║ío Cß╗¡a sß╗ò ─Éß╗ô hß╗ìa (Figure & Axes)
+     fig = figure('Name', 'M├┤ Phß╗Ång Xe ─Éiß╗üu Khiß╗ân Bß║▒ng Giß╗ìng N├│i 2D (Spectrogram)', ...
+                  'NumberTitle', 'off', 'Position', [150, 100, 900, 650], ...
+                  'Color', [0.94 0.94 0.94]);
++
+     ax = axes('Parent', fig, 'Position', [0.08, 0.1, 0.65, 0.82]);
+     hold(ax, 'on'); grid(ax, 'on');
++    axis(ax, 'equal');                 % [Sß╗¼A 3] Trß╗Ñc vu├┤ng tß╗ë lß╗ç, xe v├á g├│c quay kh├┤ng bß╗ï m├⌐o
+     axis(ax, [-10 10 -10 10]);
+     xlabel(ax, 'Tß╗ìa ─æß╗Ö X (m)', 'FontWeight', 'bold'); 
+     ylabel(ax, 'Tß╗ìa ─æß╗Ö Y (m)', 'FontWeight', 'bold');
+     title(ax, 'Bß║óN ─Éß╗Æ M├ö PHß╗ÄNG DI CHUYß╗éN Cß╗ªA XE', 'FontSize', 12, 'Color', [0 0.3 0.6]);
++
+     % Trß║íng th├íi ban ─æß║ºu cß╗ºa xe: x=0, y=0, theta = 90 ─æß╗Ö (h╞░ß╗¢ng l├¬n tr├¬n)
+     carState = struct('x', 0, 'y', 0, 'theta', 90);
++
+     % Vß║╜ xe v├á ─æ╞░ß╗¥ng vß║┐t di chuyß╗ân (Trajectory)
+     hCar = drawCar(ax, carState);
+     hTrail = plot(ax, carState.x, carState.y, 'r--', 'LineWidth', 1.5);
+     trailX = [carState.x];
+     trailY = [carState.y];
++
+     % 2. Khung Bß║úng ─Éiß╗üu Khiß╗ân & Trß║íng Th├íi (B├¬n phß║úi)
+     uicontrol('Style', 'text', 'Position', [680, 520, 200, 30], ...
+               'String', 'Bß║óNG ─ÉIß╗ÇU KHIß╗éN', 'FontSize', 11, 'FontWeight', 'bold', ...
+               'BackgroundColor', [0.94 0.94 0.94]);
++
+     hStatus = uicontrol('Style', 'text', 'Position', [670, 440, 210, 60], ...
+                         'FontSize', 10, 'FontWeight', 'bold', 'ForegroundColor', [0.8 0 0], ...
+                         'String', 'Trß║íng th├íi: ─Éang chß╗¥ lß╗çnh...', ...
+-                        'BackgroundColor', [1 1 0.9], 'Style', 'text');
+-    % N├║t ghi ├óm trß╗▒c tiß║┐p tß╗½ microphone
+-    uicontrol('Style', 'pushbutton', 'String', 'GHI AM GIONG NOI', ...
++                        'BackgroundColor', [1 1 0.9]);
++
++    % N├║t ghi ├óm trß╗▒c tiß║┐p tß╗½ microphone (l╞░u handle ─æß╗â kh├│a/mß╗ƒ n├║t khi ─æang ghi)
++    hRecBtn = uicontrol('Style', 'pushbutton', 'String', 'GHI ├éM GIß╗îNG N├ôI', ...
+               'Position', [680, 370, 190, 45], 'FontSize', 10, 'FontWeight', 'bold', ...
+               'BackgroundColor', [0.1 0.6 0.2], 'ForegroundColor', 'w', ...
+               'Callback', @(~,~) testAudioCommand());
+-    % N├║t chß║íy thß╗¡ trß╗▒c tiß║┐p hai file tr├íi/phß║úi
+-    uicontrol('Style', 'pushbutton', 'String', 'TEST TRAI', ...
+-              'Position', [680, 315, 90, 35], 'Callback', @(~,~) testAudioFile('trai_test.mp3'));
+-    uicontrol('Style', 'pushbutton', 'String', 'TEST PHAI', ...
+-              'Position', [780, 315, 90, 35], 'Callback', @(~,~) testAudioFile('phai_test.mp3'));
+ 
+     % C├íc n├║t ph├¡m bß║Ñm m├┤ phß╗Ång nhanh (d├╣ng ─æß╗â test giao diß╗çn)
+-    uicontrol('Style', 'text', 'Position', [680, 280, 190, 20], 'String', '--- Test Nhanh Ph├¡m ---');
+-    uicontrol('Style', 'pushbutton', 'String', 'TIß║╛N', 'Position', [740, 240, 70, 30], 'Callback', @(~,~) executeCommand('tien'));
+-    uicontrol('Style', 'pushbutton', 'String', 'L├ÖI',  'Position', [740, 160, 70, 30], 'Callback', @(~,~) executeCommand('lui'));
+-    uicontrol('Style', 'pushbutton', 'String', 'TR├üI', 'Position', [665, 200, 70, 30], 'Callback', @(~,~) executeCommand('trai'));
+-    uicontrol('Style', 'pushbutton', 'String', 'PHß║óI', 'Position', [815, 200, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
+-    uicontrol('Style', 'pushbutton', 'String', 'Dß╗¬NG', 'Position', [740, 200, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
+-    
++    uicontrol('Style', 'text', 'Position', [680, 310, 190, 20], 'String', '--- Test Nhanh Ph├¡m ---');
++    uicontrol('Style', 'pushbutton', 'String', 'TIß║╛N', 'Position', [740, 260, 70, 30], 'Callback', @(~,~) executeCommand('tien'));
++    uicontrol('Style', 'pushbutton', 'String', 'L├ÖI',  'Position', [740, 180, 70, 30], 'Callback', @(~,~) executeCommand('lui'));
++    uicontrol('Style', 'pushbutton', 'String', 'TR├üI', 'Position', [665, 220, 70, 30], 'Callback', @(~,~) executeCommand('trai'));
++    uicontrol('Style', 'pushbutton', 'String', 'PHß║óI', 'Position', [815, 220, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
++    uicontrol('Style', 'pushbutton', 'String', 'Dß╗¬NG', 'Position', [740, 220, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
++
++    % [Sß╗¼A 3] Kiß╗âm tra toolbox v├á nß║íp + tiß╗ün xß╗¡ l├╜ 5 template Mß╗ÿT Lß║ªN khi khß╗ƒi ─æß╗Öng
++    missingFcn = {};
++    for fn = {'spectrogram', 'resample', 'normxcorr2'}
++        if isempty(which(fn{1})), missingFcn{end+1} = fn{1}; end %#ok<AGROW>
++    end
++    templates = loadTemplates(baseDir, targetFs);
++    if ~isempty(missingFcn)
++        set(hStatus, 'String', [{'Thiß║┐u h├ám (toolbox):'}, missingFcn]);
++    elseif ~isempty(templates.missing)
++        set(hStatus, 'String', [{'Thiß║┐u/lß╗ùi file mß║½u:'}, templates.missing]);
++    end
++
+     % --- H├ÇM THß╗░C THI DI CHUYß╗éN XE ---
+     function executeCommand(cmd)
+         stepSize = 1.5; % Khoß║úng dß╗ïch chuyß╗ân mß╗ùi b╞░ß╗¢c (m)
+         rotAngle = 30;  % G├│c quay mß╗ùi b╞░ß╗¢c (─æß╗Ö)
++        mapLim = 9.5;   % [Sß╗¼A 3] Giß╗¢i hß║ín bß║ún ─æß╗ô, xe kh├┤ng chß║íy ra ngo├ái
++
++        newX = carState.x;
++        newY = carState.y;
++
+         switch lower(cmd)
+             case 'tien'
+-                carState.x = carState.x + stepSize * cosd(carState.theta);
+-                carState.y = carState.y + stepSize * sind(carState.theta);
++                newX = carState.x + stepSize * cosd(carState.theta);
++                newY = carState.y + stepSize * sind(carState.theta);
++                statusText = 'Lß╗çnh: TIß║╛N';
+             case 'lui'
+-                carState.x = carState.x - stepSize * cosd(carState.theta);
+-                carState.y = carState.y - stepSize * sind(carState.theta);
++                newX = carState.x - stepSize * cosd(carState.theta);
++                newY = carState.y - stepSize * sind(carState.theta);
++                statusText = 'Lß╗çnh: L├ÖI';
+             case 'trai'
+-                carState.theta = carState.theta + rotAngle;
++                carState.theta = mod(carState.theta + rotAngle, 360); % [Sß╗¼A 3] theta trong [0,360)
++                statusText = 'Lß╗çnh: Rß║╝ TR├üI';
+             case 'phai'
+-                carState.theta = carState.theta - rotAngle;
++                carState.theta = mod(carState.theta - rotAngle, 360);
++                statusText = 'Lß╗çnh: Rß║╝ PHß║óI';
+             case 'dung'
+-                % Dß╗½ng xe
++                statusText = 'Lß╗çnh: Dß╗¬NG XE';
++            otherwise
++                set(hStatus, 'String', {'Lß╗çnh kh├┤ng hß╗úp lß╗ç:', upper(char(cmd))});
++                return;
+         end
+-        % Cß║¡p nhß║¡t bß║úng trß║íng th├íi
+-        set(hStatus, 'String', sprintf('─É├ú nhß║¡n dß║íng: "%s"\n(x=%.1f, y=%.1f, ╬╕=%.0f┬░)', ...
+-            upper(cmd), carState.x, carState.y, carState.theta));
+-        % Cß║¡p nhß║¡t quß╗╣ ─æß║ío di chuyß╗ân
+-        trailX(end+1) = carState.x;
+-        trailY(end+1) = carState.y;
+-        set(hTrail, 'XData', trailX, 'YData', trailY);
++
++        % [Sß╗¼A 3] Chß║╖n xe trong bß║ún ─æß╗ô
++        clampX = min(max(newX, -mapLim), mapLim);
++        clampY = min(max(newY, -mapLim), mapLim);
++        hitWall = (clampX ~= newX) || (clampY ~= newY);
++        carState.x = clampX;
++        carState.y = clampY;
++
++        % Cß║¡p nhß║¡t bß║úng trß║íng th├íi (cell array ─æß╗â xuß╗æng d├▓ng)
++        lines = { statusText; ...
++            sprintf('(x=%.1f, y=%.1f, ╬╕=%.0f┬░)', carState.x, carState.y, carState.theta)};
++        if hitWall, lines{end+1} = 'Chß║ím bi├¬n bß║ún ─æß╗ô!'; end
++        set(hStatus, 'String', lines);
++
++        % Cß║¡p nhß║¡t quß╗╣ ─æß║ío (lß╗çnh Dß╗¬NG kh├┤ng th├¬m ─æiß╗âm tr├╣ng)
++        if ~strcmpi(cmd, 'dung')
++            trailX(end+1) = carState.x;
++            trailY(end+1) = carState.y;
++            set(hTrail, 'XData', trailX, 'YData', trailY);
++        end
++
+         % Cß║¡p nhß║¡t h├¼nh vß║╜ xe tr├¬n ─æß╗ô thß╗ï
+         updateCarPlot(hCar, carState);
+     end
+-    
+-    % --- H├ÇM ─Éß╗îC FILE ├éM THANH & CHß║áY THUß║¼T TO├üN DSP ---
++
++    % --- H├ÇM GHI ├éM & CHß║áY THUß║¼T TO├üN DSP ---
+     function testAudioCommand()
+-        set(hStatus, 'String', 'Dang ghi am trong 2 giay...');
++        % Kh├│a n├║t ─æß╗â tr├ính bß║Ñm chß╗ông; tß╗▒ mß╗ƒ lß║íi khi h├ám kß║┐t th├║c
++        set(hRecBtn, 'Enable', 'off');
++        restoreBtn = onCleanup(@() set(hRecBtn, 'Enable', 'on')); %#ok<NASGU>
++
++        % [Sß╗¼A 3] Kh├┤ng c├│ template n├áo th├¼ kh├┤ng cß║ºn ghi ├óm
++        if all(cellfun(@isempty, templates.S))
++            set(hStatus, 'String', {'Kh├┤ng c├│ file mß║½u hß╗úp lß╗ç!', 'Kiß╗âm tra tien/lui/trai/phai/dung.wav'});
++            return;
++        end
++
++        set(hStatus, 'String', 'Chuß║⌐n bß╗ï... (bß╗Å tay khß╗Åi chuß╗Öt)');
+         drawnow;
+-        recorder = audiorecorder(8000, 16, 1);
+-        recordblocking(recorder, 2);
+-        recordedAudio = getaudiodata(recorder);
+-        recordedFs = 8000;
+-        processAudio(recordedAudio, recordedFs, 'Ghi ├óm');
+-    end
++        pause(0.6); % chß╗¥ tiß║┐ng click tß║»t hß║│n
+ 
+-    function testAudioFile(fileName)
+-        baseDir = fileparts(mfilename('fullpath'));
+-        filePath = fullfile(baseDir, fileName);
+-        if ~exist(filePath, 'file')
+-            set(hStatus, 'String', sprintf('Kh├┤ng t├¼m thß║Ñy file:\n%s', fileName));
++        try
++            recorder = audiorecorder(targetFs, 16, 1);
++        catch ME
++            set(hStatus, 'String', {'Kh├┤ng mß╗ƒ ─æ╞░ß╗úc micro:', ME.message});
+             return;
+         end
++
++        set(hStatus, 'String', 'N├ôI NGAY! (─æang ghi 2 gi├óy)');
++        drawnow;
++
+         try
+-            [audio, sampleRate] = audioread(filePath);
+-        catch audioError
+-            set(hStatus, 'String', sprintf('Kh├┤ng ─æß╗ìc ─æ╞░ß╗úc %s:\n%s', fileName, audioError.message));
++            recordblocking(recorder, 2);
++            recordedAudio = getaudiodata(recorder);
++        catch ME
++            set(hStatus, 'String', {'Lß╗ùi khi ghi ├óm:', ME.message});
+             return;
+         end
+-        processAudio(audio, sampleRate, fileName);
+-    end
+ 
+-    function processAudio(audio, sampleRate, sourceName)
+-        detectedCmd = speechDSPCore2D(audio, sampleRate);
++        % Gß╗ìi thuß║¡t to├ín nhß║¡n dß║íng lß╗çnh DSP (Bß║ún 2D Spectrogram)
++        detectedCmd = speechDSPCore2D(recordedAudio, targetFs, templates);
++
+         if ~strcmp(detectedCmd, 'UNKNOWN')
+             executeCommand(detectedCmd);
+-            set(hStatus, 'String', sprintf('%s -> %s\n(x=%.1f, y=%.1f, ╬╕=%.0f┬░)', ...
+-                sourceName, upper(detectedCmd), carState.x, carState.y, carState.theta));
+         else
+-            set(hStatus, 'String', sprintf('%s -> KH├öNG NHß║¼N Dß║áNG ─É╞»ß╗óC', sourceName));
++            set(hStatus, 'String', {'KH├öNG NHß║¼N Dß║áNG ─É╞»ß╗óC!', '(─Éiß╗âm thß║Ñp hoß║╖c hai lß╗çnh qu├í s├ít nhau)'});
+         end
+     end
+ end
+@@ -116,227 +171,180 @@ end
+ % =========================================================================
+ % H├ÇM Vß║╝ V├Ç Cß║¼P NHß║¼T H├îNH Dß║áNG XE 2D
+ % =========================================================================
+-function hCar = drawCar(ax, state)
++% [Sß╗¼A 3] Gß╗Öp phß║ºn h├¼nh hß╗ìc d├╣ng chung cho drawCar v├á updateCarPlot
++function [rotCar, rotArrow] = carPolygons(state)
+     w = 0.8; l = 1.4; % K├¡ch th╞░ß╗¢c rß╗Öng/d├ái cß╗ºa xe
+     carShape = [-w/2, -l/2; w/2, -l/2; w/2, l/2; -w/2, l/2]';
+     arrowShape = [0, l/2; -w/3, 0; w/3, 0]'; % M┼⌐i t├¬n chß╗ë h╞░ß╗¢ng xe
++
+     R = [cosd(state.theta-90), -sind(state.theta-90); sind(state.theta-90), cosd(state.theta-90)];
+     rotCar = R * carShape + [state.x; state.y];
+     rotArrow = R * arrowShape + [state.x; state.y];
++end
++
++function hCar = drawCar(ax, state)
++    [rotCar, rotArrow] = carPolygons(state);
+     hCar.body = fill(ax, rotCar(1,:), rotCar(2,:), [0.2 0.4 0.8], 'FaceAlpha', 0.8);
+     hCar.arrow = fill(ax, rotArrow(1,:), rotArrow(2,:), [1 0.8 0]);
+ end
+ 
+ function updateCarPlot(hCar, state)
+-    w = 0.8; l = 1.4;
+-    carShape = [-w/2, -l/2; w/2, -l/2; w/2, l/2; -w/2, l/2]';
+-    arrowShape = [0, l/2; -w/3, 0; w/3, 0]';
+-    R = [cosd(state.theta-90), -sind(state.theta-90); sind(state.theta-90), cosd(state.theta-90)];
+-    rotCar = R * carShape + [state.x; state.y];
+-    rotArrow = R * arrowShape + [state.x; state.y];
++    [rotCar, rotArrow] = carPolygons(state);
+     set(hCar.body, 'XData', rotCar(1,:), 'YData', rotCar(2,:));
+     set(hCar.arrow, 'XData', rotArrow(1,:), 'YData', rotArrow(2,:));
+     drawnow;
+ end
+ 
+ % =========================================================================
+-% L├òI THUß║¼T TO├üN NHß║¼N Dß║áNG 2D SPECTROGRAM
++% Nß║áP V├Ç TIß╗ÇN Xß╗¼ L├¥ TEMPLATE (CHß╗ê CHß║áY Mß╗ÿT Lß║ªN)
+ % =========================================================================
+-function cmd = speechDSPCore2D(audioInput, inputFs)
+-    baseDir = fileparts(mfilename('fullpath'));
+-    if isempty(baseDir), baseDir = pwd; end
+-    
++function tpl = loadTemplates(baseDir, targetFs)
+     templateNames = {'tien.wav', 'lui.wav', 'trai.wav', 'phai.wav', 'dung.wav'};
+-    templateFiles = fullfile(baseDir, templateNames);
+-    cmdNames = {'tien', 'lui', 'trai', 'phai', 'dung'};
+-    targetFs = 8000;
+-    minThresh = 0.45; % Ng╞░ß╗íng t╞░╞íng quan 2D tß╗æi thiß╗âu cß╗ºa bß║ín
+-    
+-    x = audioInput;
+-    Fs = inputFs;
+-    if size(x, 2) > 1, x = mean(x, 2); end
+-    if Fs ~= targetFs, x = resample(x, targetFs, Fs); end
+-    
+-    % Tiß╗ün xß╗¡ l├╜ File Test
+-    x = bandpassFilter(x, targetFs);
+-    x = removeSilenceAutocorr(x, targetFs);
+-    
+-    if length(x) < round(targetFs * 0.12)
+-        cmd = 'UNKNOWN';
+-        return;
+-    end
+-    
+-    S_test = computeSpectrogram2D(x, targetFs); % Tr├¡ch xuß║Ñt phß╗ò 2D tß╗▒ nhi├¬n
+-    peaks = zeros(1, numel(templateFiles));
+-    templatesRaw = cell(1, numel(templateFiles));
+-    
+-    for k = 1:numel(templateFiles)
+-        if ~exist(templateFiles{k}, 'file'), continue; end
+-        
+-        [y, Fs_y] = audioread(templateFiles{k});
+-        y = y(:,1);
++    tpl.cmdNames = {'tien', 'lui', 'trai', 'phai', 'dung'};
++    tpl.Fs = targetFs;
++    tpl.S = cell(1, numel(templateNames));   % phß╗ò ─æ├ú chuß║⌐n h├│a; rß╗ùng nß║┐u thiß║┐u
++    tpl.missing = {};
++    minLen = round(targetFs * 0.12);
++
++    for k = 1:numel(templateNames)
++        f = fullfile(baseDir, templateNames{k});
++        if ~exist(f, 'file')
++            tpl.missing{end+1} = templateNames{k}; %#ok<AGROW>
++            continue;
++        end
++        try
++            [y, Fs_y] = audioread(f);
++        catch
++            tpl.missing{end+1} = [templateNames{k} ' (lß╗ùi ─æß╗ìc)']; %#ok<AGROW>
++            continue;
++        end
++        if size(y, 2) > 1, y = mean(y, 2); end     % [Sß╗¼A 3] thß╗æng nhß║Ñt vß╗¢i file test
+         if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
+-        
+-        % Tiß╗ün xß╗¡ l├╜ File Template
+         y = bandpassFilter(y, targetFs);
+         y = removeSilenceAutocorr(y, targetFs);
+-        templatesRaw{k} = y; % L╞░u lß║íi t├¡n hiß╗çu sß║ích ─æß╗â xß╗¡ l├╜ ri├¬ng TR├üI/PHß║óI nß║┐u cß║ºn
+-        
+-        S_template = computeSpectrogram2D(y, targetFs);
+-        
+-        % T├¡nh 2D Cross-Correlation vß╗¢i ─æiß╗üu kiß╗çn chß╗æng lß╗ùi size
+-        if size(S_test, 2) < size(S_template, 2)
+-            C2D = normxcorr2(S_test, S_template);
+-        else
+-            C2D = normxcorr2(S_template, S_test);
++        if length(y) < minLen
++            tpl.missing{end+1} = [templateNames{k} ' (qu├í ngß║»n)']; %#ok<AGROW>
++            continue;
+         end
+-        
+-        peaks(k) = max(C2D(:)); % L╞░u lß║íi ─æß╗ënh t╞░╞íng quan cß╗▒c ─æß║íi
+-    end
+-    
+-    [maxVal, idx] = max(peaks);
+-    candidateCmd = cmdNames{idx};
+-    
+-    % Log ─æß╗æi so├ít ─æiß╗âm tß║ºng 1
+-    fprintf('\n--- ─ÉIß╗éM T╞»╞áNG QUAN NORMXCORR2 ---\n');
+-    fprintf('TIEN: %.2f | LUI: %.2f | TRAI: %.2f | PHAI: %.2f | DUNG: %.2f\n', ...
+-        peaks(1), peaks(2), peaks(3), peaks(4), peaks(5));
+-    
+-    if maxVal < minThresh
+-        cmd = 'UNKNOWN';
+-        return;
+-    end
+-    
+-    % ---------------------------------------------------------------------
+-    % KHß╗ÉI Xß╗¼ L├¥ RI├èNG BIß╗åT D├ÇNH CHO Cß║╢P "TR├üI" V├Ç "PHß║óI"
+-    % ---------------------------------------------------------------------
+-    idxTrai = 3;
+-    idxPhai = 4;
+-    idxOthers = [1, 2, 5]; % tien, lui, dung
+-    
+-    maxOthers = max(peaks(idxOthers));            % ─Éß╗ënh cao nhß║Ñt cß╗ºa nh├│m tß╗½ ngo├ái
+-    maxTraiPhai = max(peaks([idxTrai, idxPhai])); % ─Éß╗ënh cao nhß║Ñt cß╗ºa nh├│m vß║ºn ├üI
+-    
+-    % Tr├ính ─æß╗òi sang lß╗çnh kh├íc khi ─æiß╗âm nh├│m tr├íi/phß║úi chß╗ë k├⌐m s├ít n├║t.
+-    if maxOthers > maxTraiPhai && maxTraiPhai < 0.92 * maxOthers
+-        cmd = candidateCmd;
+-        fprintf('===> Kß║┐t quß║ú: %s\n', upper(cmd));
+-        return;
+-    end
+-
+-    if maxOthers > maxTraiPhai
+-        cmd = 'UNKNOWN';
+-        fprintf('===> ─Éiß╗âm tr├íi/phß║úi v├á nh├│m lß╗çnh kh├íc qu├í s├ít nhau; y├¬u cß║ºu n├│i lß║íi.\n');
+-        return;
+-    end
+-    
+-    % Khi vß║ºn "├üI" dß╗Öi l├¬n l├ám TR├üI hoß║╖c PHß║óI dß║½n ─æß║ºu -> Chuyß╗ân v├áo h├ám xß╗¡ l├╜ ri├¬ng
+-    if ~isempty(templatesRaw{idxTrai}) && ~isempty(templatesRaw{idxPhai})
+-        fprintf('===> Ph├ít hiß╗çn vß║ºn ├üI dß║½n ─æß║ºu (%.2f > %.2f) -> K├¡ch hoß║ít xß╗¡ l├╜ ri├¬ng biß╗çt TR├üI/PHß║óI...\n', ...
+-            maxTraiPhai, maxOthers);
+-        cmd = resolveTraiPhai(x, templatesRaw{idxTrai}, templatesRaw{idxPhai}, targetFs);
+-    else
+-        cmd = candidateCmd;
++        tpl.S{k} = computeSpectrogram2D(y, targetFs);
+     end
+ end
+ 
+ % =========================================================================
+-% H├ÇM Xß╗¼ L├¥ RI├èNG BIß╗åT: PH├éN T├üCH PHß╗ñ ├éM ─Éß║ªU TR├üI vs PHß║óI
+-% (Chß╗ë gß╗ìi khi vß║ºn ├üI dß╗Öi l├¬n, sß╗¡ dß╗Ñng Pre-emphasis v├á Hß╗Öp phß╗Ñ ├óm dß║úi cao)
++% L├òI THUß║¼T TO├üN NHß║¼N Dß║áNG 2D SPECTROGRAM
+ % =========================================================================
+-function finalCmd = resolveTraiPhai(x_test, y_trai, y_phai, Fs)
+-    S_test = computeTraiPhaiFeatures(x_test, Fs);
+-    S_trai = computeTraiPhaiFeatures(y_trai, Fs);
+-    S_phai = computeTraiPhaiFeatures(y_phai, Fs);
++function cmd = speechDSPCore2D(audioInput, inputFs, templates)
++    cmdNames = templates.cmdNames;
++    targetFs = templates.Fs;
++    minThresh = 0.45;                 % Ng╞░ß╗íng t╞░╞íng quan 2D tß╗æi thiß╗âu
++    minMargin = 0.05;                 % C├ích biß╗çt tß╗æi thiß╗âu giß╗»a hß║íng 1 v├á hß║íng 2
++    minLen = round(targetFs * 0.12);  % ─Éß╗Ö d├ái tß╗æi thiß╗âu (120 ms)
++
++    x = audioInput;
++    Fs = inputFs;
++    if size(x, 2) > 1, x = mean(x, 2); end
++    if Fs ~= targetFs, x = resample(x, targetFs, Fs); end
+ 
+-    if isempty(S_test) || isempty(S_trai) || isempty(S_phai)
+-        finalCmd = 'UNKNOWN';
++    % Tiß╗ün xß╗¡ l├╜ File Test
++    x = bandpassFilter(x, targetFs);
++    x = removeSilenceAutocorr(x, targetFs);
++
++    if length(x) < minLen
++        fprintf('T├¡n hiß╗çu qu├í ngß║»n sau khi cß║»t khoß║úng lß║╖ng -> UNKNOWN\n');
++        cmd = 'UNKNOWN';
+         return;
+     end
++    S_test = computeSpectrogram2D(x, targetFs); % Tr├¡ch xuß║Ñt phß╗ò 2D
+ 
+-    [distanceTrai, pathTestTrai] = dtw(S_test, S_trai, 'euclidean');
+-    [distancePhai, pathTestPhai] = dtw(S_test, S_phai, 'euclidean');
+-    scoreTrai = distanceTrai / numel(pathTestTrai);
+-    scorePhai = distancePhai / numel(pathTestPhai);
++    peaks = zeros(1, numel(cmdNames));
+ 
+-    fprintf('--- [DTW PHß╗ñ ├éM] Khoß║úng c├ích -> TRAI: %.3f | PHAI: %.3f\n', scoreTrai, scorePhai);
++    for k = 1:numel(cmdNames)
++        S_template = templates.S{k};        % [Sß╗¼A 3] d├╣ng phß╗ò ─æ├ú t├¡nh sß║╡n
++        if isempty(S_template), continue; end
+ 
+-    if abs(scoreTrai - scorePhai) / max(scoreTrai, scorePhai) < 0.08
+-        finalCmd = 'UNKNOWN';
+-        fprintf('===> Hai ─æiß╗âm qu├í gß║ºn nhau, kh├┤ng ─æß╗º tin cß║¡y ─æß╗â ph├ón biß╗çt.\n');
+-    elseif scoreTrai < scorePhai
+-        finalCmd = 'trai';
+-        fprintf('===> QUYß║╛T ─Éß╗èNH CUß╗ÉI C├ÖNG: ** TR├üI **\n');
+-    else
+-        finalCmd = 'phai';
+-        fprintf('===> QUYß║╛T ─Éß╗èNH CUß╗ÉI C├ÖNG: ** PHß║óI **\n');
+-    end
+-end
++        % C├íi ngß║»n h╞ín (theo thß╗¥i gian) l├ám template, c├íi d├ái h╞ín l├ám ß║únh
++        if size(S_test, 2) < size(S_template, 2)
++            T = S_test;     A = S_template;
++        else
++            T = S_template; A = S_test;
++        end
++        C2D = normxcorr2(T, A);
++        % Chß╗ë lß║Ñy v├╣ng "valid": template nß║▒m trß╗ìn trong ß║únh
++        C2D = C2D(size(T,1):size(A,1), size(T,2):size(A,2));
+ 
+-function S = computeTraiPhaiFeatures(x, Fs)
+-    x = x(:);
+-    frameLen = round(Fs * 0.02);
+-    energy = movmean(x .^ 2, frameLen);
+-    maxEnergy = max(energy);
+-    if isempty(maxEnergy) || maxEnergy <= eps
+-        S = [];
+-        return;
++        peaks(k) = max(C2D(:)); % L╞░u lß║íi ─æß╗ënh t╞░╞íng quan cß╗▒c ─æß║íi
+     end
+ 
+-    onset = find(energy > 0.02 * maxEnergy, 1, 'first');
+-    if isempty(onset)
+-        S = [];
+-        return;
++    % In ─æiß╗âm ─æß╗â chß╗ënh ng╞░ß╗íng bß║▒ng dß╗» liß╗çu thß║¡t
++    fprintf('TIEN: %.2f | LUI: %.2f | TRAI: %.2f | PHAI: %.2f | DUNG: %.2f\n', peaks);
++
++    % Quyß║┐t ─æß╗ïnh: v╞░ß╗út ng╞░ß╗íng V├Ç hß║íng 1 h╞ín hß║íng 2 ─æß╗º xa
++    [sortedPeaks, order] = sort(peaks, 'descend');
++    if sortedPeaks(1) < minThresh
++        cmd = 'UNKNOWN';
++    elseif (sortedPeaks(1) - sortedPeaks(2)) < minMargin
++        fprintf('Hß║íng 1 (%s) v├á hß║íng 2 (%s) qu├í s├ít nhau -> UNKNOWN\n', ...
++                upper(cmdNames{order(1)}), upper(cmdNames{order(2)}));
++        cmd = 'UNKNOWN';
++    else
++        cmd = cmdNames{order(1)};
+     end
+-    startIdx = max(1, onset - round(Fs * 0.04));
+-    endIdx = min(numel(x), onset + round(Fs * 0.3));
+-    x = preEmphasisFilter(x(startIdx:endIdx), 0.96);
+-
+-    winLen = round(Fs * 0.035);
+-    overlap = round(winLen * 0.6);
+-    nfft = 512;
+-    [S, frequencies] = spectrogram(x, winLen, overlap, nfft, Fs);
+-    band = frequencies >= 300 & frequencies <= 3400;
+-    S = 20 * log10(abs(S(band, :)) + 1e-6);
+-    S = (S - mean(S, 1)) ./ (std(S, 0, 1) + 1e-6);
+ end
+ 
+ % --- H├ÇM PHß╗ñ 1: TR├ìCH XUß║ñT MA TRß║¼N PHß╗ö 2D ---
+ function S_norm = computeSpectrogram2D(x, Fs)
+-    winLen = round(Fs * 0.035);   % Cß╗¡a sß╗ò 30 ms
+-    overlap = round(winLen * 0.6); % ─Éß╗Ö chß╗ông lß║Ñp 70%
++    winLen = round(Fs * 0.030);   % Cß╗¡a sß╗ò 30 ms
++    overlap = round(winLen * 0.7); % ─Éß╗Ö chß╗ông lß║Ñp 70%
+     nfft = 512;                   % Sß╗æ ─æiß╗âm FFT
+-    [S, ~, ~] = spectrogram(x, winLen, overlap, nfft, Fs);
++
++    [S, F, ~] = spectrogram(x, winLen, overlap, nfft, Fs);
++
++    % Chß╗ë giß╗» dß║úi tß║ºn trong b─âng lß╗ìc, bß╗Å v├╣ng ngo├ái b─âng th├┤ng
++    S = S(F >= 150 & F <= 7000, :);
+     S_dB = 20 * log10(abs(S) + 1e-6); % Chuyß╗ân ─æß╗òi sang Logarit (dB)
++
++    % Cß║»t dß║úi ─æß╗Öng 45 dB (giß╗æng l├║c vß║╜) ─æß╗â nß╗ün nhiß╗àu kh├┤ng chi phß╗æi z-score
++    S_dB = max(S_dB, max(S_dB(:)) - 45);
++
+     % Chuß║⌐n h├│a Ma trß║¡n Phß╗ò (Zero-Mean & Unit Variance)
+     S_norm = (S_dB - mean(S_dB(:))) / (std(S_dB(:)) + 1e-6);
+ end
+ 
+ % --- H├ÇM PHß╗ñ 2: VAD AUTOCORRELATION ---
+ function x_clean = removeSilenceAutocorr(x, Fs)
++    x = x(:);
+     frameLen = max(1, round(Fs * 0.02));
+     hopLen = round(frameLen / 2);
+     numFrames = floor((length(x) - frameLen) / hopLen) + 1;
+     if numFrames < 1, x_clean = x; return; end
++
+     energy = zeros(1, numFrames);
+     autocorrPeak = zeros(1, numFrames);
+-    minLag = round(Fs / 500); maxLag = round(Fs / 80);
++    minLag = round(Fs / 500);
++    maxLag = min(round(Fs / 80), frameLen - 1);
++    nfftA = 2^nextpow2(2 * frameLen);   % [Sß╗¼A 3] Tß╗▒ t╞░╞íng quan bß║▒ng FFT, nhanh h╞ín xcorr
++
+     for i = 1:numFrames
+         startSample = (i-1)*hopLen + 1;
+         frame = x(startSample : startSample + frameLen - 1);
+         energy(i) = sum(frame.^2);
+-        [r, lags] = xcorr(frame, 'coeff');
+-        zeroIdx = find(lags == 0);
+-        searchWin = r(zeroIdx + minLag : zeroIdx + maxLag);
+-        if ~isempty(searchWin), autocorrPeak(i) = max(searchWin); end
++
++        if energy(i) > 0 && minLag < maxLag
++            r = real(ifft(abs(fft(frame, nfftA)).^2));
++            r = r / r(1);                                   % chuß║⌐n h├│a 'coeff' (lag 0 = 1)
++            autocorrPeak(i) = max(r(minLag+1 : maxLag+1));  % lag L nß║▒m ß╗ƒ chß╗ë sß╗æ L+1
++        end
+     end
++
+     maxE = max(energy);
+     if maxE == 0, x_clean = x; return; end
++
+     isVoiced = (autocorrPeak > 0.3) & (energy > 0.005 * maxE);
+     isUnvoiced = (energy > 0.008 * maxE);
+     activeFrames = find(isVoiced | isUnvoiced);
++
+     if ~isempty(activeFrames)
+-        padSamples = round(Fs * 0.05); % Lß╗ü 50ms tr├ính cß╗Ñt phß╗Ñ ├óm
++        padSamples = round(Fs * 0.05); % Lß╗ü 50ms
+         startIdx = max(1, (activeFrames(1)-1)*hopLen + 1 - padSamples);
+         endIdx = min(length(x), (activeFrames(end)-1)*hopLen + frameLen + padSamples);
+         x_clean = x(startIdx:endIdx);
+@@ -347,16 +355,11 @@ end
+ 
+ % --- H├ÇM PHß╗ñ 3: BANDPASS FILTER ---
+ function x_filtered = bandpassFilter(x, Fs)
++    % B─âng th├┤ng 150-7000 Hz (cß║ºn Fs >= 16 kHz); nh├ính catch d├╣ng c├╣ng dß║úi
+     try
+-        x_filtered = bandpass(x, [150 3400], Fs);
++        x_filtered = bandpass(x, [150 7000], Fs);
+     catch
+-        [b, a] = butter(2, [150 3400] / (Fs/2), 'bandpass');
++        [b, a] = butter(2, [150 7000] / (Fs/2), 'bandpass');
+         x_filtered = filtfilt(b, a, x);
+     end
+-end
+-
+-% --- H├ÇM PHß╗ñ 4: Bß╗ÿ Lß╗îC PRE-EMPHASIS CHO RI├èNG Cß║╢P TR├üI / PHß║óI ---
+-function y = preEmphasisFilter(x, alpha)
+-    if nargin < 2, alpha = 0.96; end
+-    y = filter([1, -alpha], 1, x);
+ end
+\ No newline at end of file
+commit d9e4940 | 2026-09-27 | sß╗¡a lß║íi ─æß╗Ö d├ái cß╗ºa c├íc file ├óm thanh v├á th├¬m c├íc file ├óm thanh mß╗¢i ─æß╗â cß║úi thiß╗çn chß║Ñt l╞░ß╗úng nhß║¡n dß║íng giß╗ìng n├│i. ph├ón biß╗çt r├╡ c├íc file ├óm thanh cho tß╗½ng h╞░ß╗¢ng (tr├íi, phß║úi, l├¬n, xuß╗æng) v├á th├¬m c├íc file kiß╗âm tra ─æß╗â ─æ├ính gi├í chß║Ñt l╞░ß╗úng nhß║¡n dß║íng. tß╗æi ╞░u h├│a c├íc file ├óm thanh hiß╗çn c├│ ─æß╗â giß║úm nhiß╗àu v├á t─âng ─æß╗Ö r├╡ r├áng cß╗ºa giß╗ìng n├│i. cß║úi thiß╗çn thuß║¡t to├ín nhß║¡n diß╗çn tr├íi phß║úi ─æß╗â t─âng ─æß╗Ö ch├¡nh x├íc trong viß╗çc ph├ón biß╗çt h╞░ß╗¢ng cß╗ºa giß╗ìng n├│i. tinh chß╗ënh c├íc tham sß╗æ cß╗ºa m├┤ h├¼nh nhß║¡n dß║íng giß╗ìng n├│i ─æß╗â cß║úi thiß╗çn hiß╗çu suß║Ñt v├á ─æß╗Ö ch├¡nh x├íc.
+
+diff --git a/code/speechrecognition.m b/code/speechrecognition.m
+index 393c3a0..981da6d 100644
+--- a/code/speechrecognition.m
++++ b/code/speechrecognition.m
+@@ -31,13 +31,19 @@ function speechrecognition()
+               'Position', [680, 370, 190, 45], 'FontSize', 10, 'FontWeight', 'bold', ...
+               'BackgroundColor', [0.1 0.6 0.2], 'ForegroundColor', 'w', ...
+               'Callback', @(~,~) testAudioCommand());
++    % N├║t chß║íy thß╗¡ trß╗▒c tiß║┐p hai file tr├íi/phß║úi
++    uicontrol('Style', 'pushbutton', 'String', 'TEST TRAI', ...
++              'Position', [680, 315, 90, 35], 'Callback', @(~,~) testAudioFile('trai_test.mp3'));
++    uicontrol('Style', 'pushbutton', 'String', 'TEST PHAI', ...
++              'Position', [780, 315, 90, 35], 'Callback', @(~,~) testAudioFile('phai_test.mp3'));
++
+     % C├íc n├║t ph├¡m bß║Ñm m├┤ phß╗Ång nhanh (d├╣ng ─æß╗â test giao diß╗çn)
+-    uicontrol('Style', 'text', 'Position', [680, 310, 190, 20], 'String', '--- Test Nhanh Ph├¡m ---');
+-    uicontrol('Style', 'pushbutton', 'String', 'TIß║╛N', 'Position', [740, 260, 70, 30], 'Callback', @(~,~) executeCommand('tien'));
+-    uicontrol('Style', 'pushbutton', 'String', 'L├ÖI',  'Position', [740, 180, 70, 30], 'Callback', @(~,~) executeCommand('lui'));
+-    uicontrol('Style', 'pushbutton', 'String', 'TR├üI', 'Position', [665, 220, 70, 30], 'Callback', @(~,~) executeCommand('trai'));
+-    uicontrol('Style', 'pushbutton', 'String', 'PHß║óI', 'Position', [815, 220, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
+-    uicontrol('Style', 'pushbutton', 'String', 'Dß╗¬NG', 'Position', [740, 220, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
++    uicontrol('Style', 'text', 'Position', [680, 280, 190, 20], 'String', '--- Test Nhanh Ph├¡m ---');
++    uicontrol('Style', 'pushbutton', 'String', 'TIß║╛N', 'Position', [740, 240, 70, 30], 'Callback', @(~,~) executeCommand('tien'));
++    uicontrol('Style', 'pushbutton', 'String', 'L├ÖI',  'Position', [740, 160, 70, 30], 'Callback', @(~,~) executeCommand('lui'));
++    uicontrol('Style', 'pushbutton', 'String', 'TR├üI', 'Position', [665, 200, 70, 30], 'Callback', @(~,~) executeCommand('trai'));
++    uicontrol('Style', 'pushbutton', 'String', 'PHß║óI', 'Position', [815, 200, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
++    uicontrol('Style', 'pushbutton', 'String', 'Dß╗¬NG', 'Position', [740, 200, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
+     
+     % --- H├ÇM THß╗░C THI DI CHUYß╗éN XE ---
+     function executeCommand(cmd)
+@@ -76,13 +82,33 @@ function speechrecognition()
+         recordblocking(recorder, 2);
+         recordedAudio = getaudiodata(recorder);
+         recordedFs = 8000;
+-        
+-        % Gß╗ìi thuß║¡t to├ín nhß║¡n dß║íng lß╗çnh DSP (Bß║ún 2D Spectrogram k├¿m bß╗Ö lß╗ìc ri├¬ng TR├üI/PHß║óI)
+-        detectedCmd = speechDSPCore2D(recordedAudio, recordedFs);
++        processAudio(recordedAudio, recordedFs, 'Ghi ├óm');
++    end
++
++    function testAudioFile(fileName)
++        baseDir = fileparts(mfilename('fullpath'));
++        filePath = fullfile(baseDir, fileName);
++        if ~exist(filePath, 'file')
++            set(hStatus, 'String', sprintf('Kh├┤ng t├¼m thß║Ñy file:\n%s', fileName));
++            return;
++        end
++        try
++            [audio, sampleRate] = audioread(filePath);
++        catch audioError
++            set(hStatus, 'String', sprintf('Kh├┤ng ─æß╗ìc ─æ╞░ß╗úc %s:\n%s', fileName, audioError.message));
++            return;
++        end
++        processAudio(audio, sampleRate, fileName);
++    end
++
++    function processAudio(audio, sampleRate, sourceName)
++        detectedCmd = speechDSPCore2D(audio, sampleRate);
+         if ~strcmp(detectedCmd, 'UNKNOWN')
+             executeCommand(detectedCmd);
++            set(hStatus, 'String', sprintf('%s -> %s\n(x=%.1f, y=%.1f, ╬╕=%.0f┬░)', ...
++                sourceName, upper(detectedCmd), carState.x, carState.y, carState.theta));
+         else
+-            set(hStatus, 'String', 'KH├öNG NHß║¼N Dß║áNG ─É╞»ß╗óC!\n(─Éß╗ënh t╞░╞íng quan 2D qu├í thß║Ñp)');
++            set(hStatus, 'String', sprintf('%s -> KH├öNG NHß║¼N Dß║áNG ─É╞»ß╗óC', sourceName));
+         end
+     end
+ end
+@@ -191,12 +217,18 @@ function cmd = speechDSPCore2D(audioInput, inputFs)
+     maxOthers = max(peaks(idxOthers));            % ─Éß╗ënh cao nhß║Ñt cß╗ºa nh├│m tß╗½ ngo├ái
+     maxTraiPhai = max(peaks([idxTrai, idxPhai])); % ─Éß╗ënh cao nhß║Ñt cß╗ºa nh├│m vß║ºn ├üI
+     
+-    % Nß║┐u nh├│m ngo├ái (tiß║┐n, l├╣i, dß╗½ng) thß║»ng thß║┐ -> Chß╗ìn lu├┤n lß╗çnh ─æ├│
+-    if maxOthers >= maxTraiPhai
++    % Tr├ính ─æß╗òi sang lß╗çnh kh├íc khi ─æiß╗âm nh├│m tr├íi/phß║úi chß╗ë k├⌐m s├ít n├║t.
++    if maxOthers > maxTraiPhai && maxTraiPhai < 0.92 * maxOthers
+         cmd = candidateCmd;
+         fprintf('===> Kß║┐t quß║ú: %s\n', upper(cmd));
+         return;
+     end
++
++    if maxOthers > maxTraiPhai
++        cmd = 'UNKNOWN';
++        fprintf('===> ─Éiß╗âm tr├íi/phß║úi v├á nh├│m lß╗çnh kh├íc qu├í s├ít nhau; y├¬u cß║ºu n├│i lß║íi.\n');
++        return;
++    end
+     
+     % Khi vß║ºn "├üI" dß╗Öi l├¬n l├ám TR├üI hoß║╖c PHß║óI dß║½n ─æß║ºu -> Chuyß╗ân v├áo h├ám xß╗¡ l├╜ ri├¬ng
+     if ~isempty(templatesRaw{idxTrai}) && ~isempty(templatesRaw{idxPhai})
+@@ -213,38 +245,26 @@ end
+ % (Chß╗ë gß╗ìi khi vß║ºn ├üI dß╗Öi l├¬n, sß╗¡ dß╗Ñng Pre-emphasis v├á Hß╗Öp phß╗Ñ ├óm dß║úi cao)
+ % =========================================================================
+ function finalCmd = resolveTraiPhai(x_test, y_trai, y_phai, Fs)
+-    % 1. ├üp dß╗Ñng Pre-emphasis ri├¬ng cho 3 t├¡n hiß╗çu ─æß╗â nhß║Ñn mß║ính dß║úi cao cß╗ºa phß╗Ñ ├óm
+-    x_test_pre = preEmphasisFilter(x_test, 0.96);
+-    y_trai_pre = preEmphasisFilter(y_trai, 0.96);
+-    y_phai_pre = preEmphasisFilter(y_phai, 0.96);
+-    
+-    % 2. Tr├¡ch xuß║Ñt Spectrogram sau khi Pre-emphasis
+-    S_test = computeSpectrogram2D(x_test_pre, Fs);
+-    S_trai = computeSpectrogram2D(y_trai_pre, Fs);
+-    S_phai = computeSpectrogram2D(y_phai_pre, Fs);
+-    
+-    % 3. Cß║»t hß╗Öp phß╗Ñ ├óm: Dß║úi 1000 - 3400 Hz, 100 ms ─æß║ºu (~12 khung)
+-    binStart = round(1000 / (Fs / 512));
+-    binEnd   = round(3400 / (Fs / 512));
+-    
+-    headTest = min(size(S_test, 2), 12);
+-    headTrai = min(size(S_trai, 2), 12);
+-    headPhai = min(size(S_phai, 2), 12);
+-    
+-    box_test = S_test(binStart:binEnd, 1:headTest);
+-    box_trai = S_trai(binStart:binEnd, 1:headTrai);
+-    box_phai = S_phai(binStart:binEnd, 1:headPhai);
+-    
+-    % 4. So khß╗¢p tr╞░ß╗út ngß║»n cß╗Ñc bß╗Ö bß║▒ng normxcorr2 tr├¬n hß╗Öp phß╗Ñ ├óm
+-    C_trai = normxcorr2(box_trai, box_test);
+-    C_phai = normxcorr2(box_phai, box_test);
+-    
+-    scoreTrai = max(C_trai(:));
+-    scorePhai = max(C_phai(:));
+-    
+-    fprintf('--- [Xß╗¼ L├¥ RI├èNG] So khß╗¢p phß╗Ñ ├óm dß║úi cao -> TRAI: %.3f | PHAI: %.3f\n', scoreTrai, scorePhai);
+-    
+-    if scoreTrai >= scorePhai
++    S_test = computeTraiPhaiFeatures(x_test, Fs);
++    S_trai = computeTraiPhaiFeatures(y_trai, Fs);
++    S_phai = computeTraiPhaiFeatures(y_phai, Fs);
++
++    if isempty(S_test) || isempty(S_trai) || isempty(S_phai)
++        finalCmd = 'UNKNOWN';
++        return;
++    end
++
++    [distanceTrai, pathTestTrai] = dtw(S_test, S_trai, 'euclidean');
++    [distancePhai, pathTestPhai] = dtw(S_test, S_phai, 'euclidean');
++    scoreTrai = distanceTrai / numel(pathTestTrai);
++    scorePhai = distancePhai / numel(pathTestPhai);
++
++    fprintf('--- [DTW PHß╗ñ ├éM] Khoß║úng c├ích -> TRAI: %.3f | PHAI: %.3f\n', scoreTrai, scorePhai);
++
++    if abs(scoreTrai - scorePhai) / max(scoreTrai, scorePhai) < 0.08
++        finalCmd = 'UNKNOWN';
++        fprintf('===> Hai ─æiß╗âm qu├í gß║ºn nhau, kh├┤ng ─æß╗º tin cß║¡y ─æß╗â ph├ón biß╗çt.\n');
++    elseif scoreTrai < scorePhai
+         finalCmd = 'trai';
+         fprintf('===> QUYß║╛T ─Éß╗èNH CUß╗ÉI C├ÖNG: ** TR├üI **\n');
+     else
+@@ -253,6 +273,34 @@ function finalCmd = resolveTraiPhai(x_test, y_trai, y_phai, Fs)
+     end
+ end
+ 
++function S = computeTraiPhaiFeatures(x, Fs)
++    x = x(:);
++    frameLen = round(Fs * 0.02);
++    energy = movmean(x .^ 2, frameLen);
++    maxEnergy = max(energy);
++    if isempty(maxEnergy) || maxEnergy <= eps
++        S = [];
++        return;
++    end
++
++    onset = find(energy > 0.02 * maxEnergy, 1, 'first');
++    if isempty(onset)
++        S = [];
++        return;
++    end
++    startIdx = max(1, onset - round(Fs * 0.04));
++    endIdx = min(numel(x), onset + round(Fs * 0.3));
++    x = preEmphasisFilter(x(startIdx:endIdx), 0.96);
++
++    winLen = round(Fs * 0.035);
++    overlap = round(winLen * 0.6);
++    nfft = 512;
++    [S, frequencies] = spectrogram(x, winLen, overlap, nfft, Fs);
++    band = frequencies >= 300 & frequencies <= 3400;
++    S = 20 * log10(abs(S(band, :)) + 1e-6);
++    S = (S - mean(S, 1)) ./ (std(S, 0, 1) + 1e-6);
++end
++
+ % --- H├ÇM PHß╗ñ 1: TR├ìCH XUß║ñT MA TRß║¼N PHß╗ö 2D ---
+ function S_norm = computeSpectrogram2D(x, Fs)
+     winLen = round(Fs * 0.035);   % Cß╗¡a sß╗ò 30 ms
+commit 2163f67 | 2026-09-27 | sua lan 3
+
+diff --git a/code/speechrecognition.m b/code/speechrecognition.m
+index d49c3f9..393c3a0 100644
+--- a/code/speechrecognition.m
++++ b/code/speechrecognition.m
+@@ -1,44 +1,36 @@
+ function speechrecognition()
+ % GIAO DIß╗åN M├ö PHß╗ÄNG XE 2D ─ÉIß╗ÇU KHIß╗éN Bß║░NG GIß╗îNG N├ôI 
+ % Sß╗¡ dß╗Ñng l├╡i 2D Spectrogram Cross-Correlation chß╗æng nhiß╗àu pha v├á nhß║¡n diß╗çn phß╗ò
+-
+     % 1. Khß╗ƒi tß║ío Cß╗¡a sß╗ò ─Éß╗ô hß╗ìa (Figure & Axes)
+     fig = figure('Name', 'M├┤ Phß╗Ång Xe ─Éiß╗üu Khiß╗ân Bß║▒ng Giß╗ìng N├│i 2D (Spectrogram)', ...
+                  'NumberTitle', 'off', 'Position', [150, 100, 900, 650], ...
+                  'Color', [0.94 0.94 0.94]);
+-
+     ax = axes('Parent', fig, 'Position', [0.08, 0.1, 0.65, 0.82]);
+     hold(ax, 'on'); grid(ax, 'on');
+     axis(ax, [-10 10 -10 10]);
+     xlabel(ax, 'Tß╗ìa ─æß╗Ö X (m)', 'FontWeight', 'bold'); 
+     ylabel(ax, 'Tß╗ìa ─æß╗Ö Y (m)', 'FontWeight', 'bold');
+     title(ax, 'Bß║óN ─Éß╗Æ M├ö PHß╗ÄNG DI CHUYß╗éN Cß╗ªA XE', 'FontSize', 12, 'Color', [0 0.3 0.6]);
+-
+     % Trß║íng th├íi ban ─æß║ºu cß╗ºa xe: x=0, y=0, theta = 90 ─æß╗Ö (h╞░ß╗¢ng l├¬n tr├¬n)
+     carState = struct('x', 0, 'y', 0, 'theta', 90);
+-
+     % Vß║╜ xe v├á ─æ╞░ß╗¥ng vß║┐t di chuyß╗ân (Trajectory)
+     hCar = drawCar(ax, carState);
+     hTrail = plot(ax, carState.x, carState.y, 'r--', 'LineWidth', 1.5);
+     trailX = [carState.x];
+     trailY = [carState.y];
+-
+     % 2. Khung Bß║úng ─Éiß╗üu Khiß╗ân & Trß║íng Th├íi (B├¬n phß║úi)
+     uicontrol('Style', 'text', 'Position', [680, 520, 200, 30], ...
+               'String', 'Bß║óNG ─ÉIß╗ÇU KHIß╗éN', 'FontSize', 11, 'FontWeight', 'bold', ...
+               'BackgroundColor', [0.94 0.94 0.94]);
+-
+     hStatus = uicontrol('Style', 'text', 'Position', [670, 440, 210, 60], ...
+                         'FontSize', 10, 'FontWeight', 'bold', 'ForegroundColor', [0.8 0 0], ...
+                         'String', 'Trß║íng th├íi: ─Éang chß╗¥ lß╗çnh...', ...
+                         'BackgroundColor', [1 1 0.9], 'Style', 'text');
+-
+     % N├║t ghi ├óm trß╗▒c tiß║┐p tß╗½ microphone
+     uicontrol('Style', 'pushbutton', 'String', 'GHI AM GIONG NOI', ...
+               'Position', [680, 370, 190, 45], 'FontSize', 10, 'FontWeight', 'bold', ...
+               'BackgroundColor', [0.1 0.6 0.2], 'ForegroundColor', 'w', ...
+               'Callback', @(~,~) testAudioCommand());
+-
+     % C├íc n├║t ph├¡m bß║Ñm m├┤ phß╗Ång nhanh (d├╣ng ─æß╗â test giao diß╗çn)
+     uicontrol('Style', 'text', 'Position', [680, 310, 190, 20], 'String', '--- Test Nhanh Ph├¡m ---');
+     uicontrol('Style', 'pushbutton', 'String', 'TIß║╛N', 'Position', [740, 260, 70, 30], 'Callback', @(~,~) executeCommand('tien'));
+@@ -46,44 +38,36 @@ function speechrecognition()
+     uicontrol('Style', 'pushbutton', 'String', 'TR├üI', 'Position', [665, 220, 70, 30], 'Callback', @(~,~) executeCommand('trai'));
+     uicontrol('Style', 'pushbutton', 'String', 'PHß║óI', 'Position', [815, 220, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
+     uicontrol('Style', 'pushbutton', 'String', 'Dß╗¬NG', 'Position', [740, 220, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
+-
++    
+     % --- H├ÇM THß╗░C THI DI CHUYß╗éN XE ---
+     function executeCommand(cmd)
+         stepSize = 1.5; % Khoß║úng dß╗ïch chuyß╗ân mß╗ùi b╞░ß╗¢c (m)
+         rotAngle = 30;  % G├│c quay mß╗ùi b╞░ß╗¢c (─æß╗Ö)
+-
+         switch lower(cmd)
+             case 'tien'
+                 carState.x = carState.x + stepSize * cosd(carState.theta);
+                 carState.y = carState.y + stepSize * sind(carState.theta);
+-                statusText = 'Lß╗çnh: TIß║╛N Γ¼å∩╕Å';
+             case 'lui'
+                 carState.x = carState.x - stepSize * cosd(carState.theta);
+                 carState.y = carState.y - stepSize * sind(carState.theta);
+-                statusText = 'Lß╗çnh: L├ÖI Γ¼ç∩╕Å';
+             case 'trai'
+                 carState.theta = carState.theta + rotAngle;
+-                statusText = 'Lß╗çnh: Rß║╝ TR├üI Γå⌐∩╕Å';
+             case 'phai'
+                 carState.theta = carState.theta - rotAngle;
+-                statusText = 'Lß╗çnh: Rß║╝ PHß║óI Γå¬∩╕Å';
+             case 'dung'
+-                statusText = 'Lß╗çnh: Dß╗¬NG XE ≡ƒ¢æ';
++                % Dß╗½ng xe
+         end
+-
+         % Cß║¡p nhß║¡t bß║úng trß║íng th├íi
+         set(hStatus, 'String', sprintf('─É├ú nhß║¡n dß║íng: "%s"\n(x=%.1f, y=%.1f, ╬╕=%.0f┬░)', ...
+             upper(cmd), carState.x, carState.y, carState.theta));
+-
+         % Cß║¡p nhß║¡t quß╗╣ ─æß║ío di chuyß╗ân
+         trailX(end+1) = carState.x;
+         trailY(end+1) = carState.y;
+         set(hTrail, 'XData', trailX, 'YData', trailY);
+-
+         % Cß║¡p nhß║¡t h├¼nh vß║╜ xe tr├¬n ─æß╗ô thß╗ï
+         updateCarPlot(hCar, carState);
+     end
+-
++    
+     % --- H├ÇM ─Éß╗îC FILE ├éM THANH & CHß║áY THUß║¼T TO├üN DSP ---
+     function testAudioCommand()
+         set(hStatus, 'String', 'Dang ghi am trong 2 giay...');
+@@ -92,9 +76,9 @@ function speechrecognition()
+         recordblocking(recorder, 2);
+         recordedAudio = getaudiodata(recorder);
+         recordedFs = 8000;
+-        % Gß╗ìi thuß║¡t to├ín nhß║¡n dß║íng lß╗çnh DSP (Bß║ún 2D Spectrogram)
++        
++        % Gß╗ìi thuß║¡t to├ín nhß║¡n dß║íng lß╗çnh DSP (Bß║ún 2D Spectrogram k├¿m bß╗Ö lß╗ìc ri├¬ng TR├üI/PHß║óI)
+         detectedCmd = speechDSPCore2D(recordedAudio, recordedFs);
+-
+         if ~strcmp(detectedCmd, 'UNKNOWN')
+             executeCommand(detectedCmd);
+         else
+@@ -110,11 +94,9 @@ function hCar = drawCar(ax, state)
+     w = 0.8; l = 1.4; % K├¡ch th╞░ß╗¢c rß╗Öng/d├ái cß╗ºa xe
+     carShape = [-w/2, -l/2; w/2, -l/2; w/2, l/2; -w/2, l/2]';
+     arrowShape = [0, l/2; -w/3, 0; w/3, 0]'; % M┼⌐i t├¬n chß╗ë h╞░ß╗¢ng xe
+-
+     R = [cosd(state.theta-90), -sind(state.theta-90); sind(state.theta-90), cosd(state.theta-90)];
+     rotCar = R * carShape + [state.x; state.y];
+     rotArrow = R * arrowShape + [state.x; state.y];
+-
+     hCar.body = fill(ax, rotCar(1,:), rotCar(2,:), [0.2 0.4 0.8], 'FaceAlpha', 0.8);
+     hCar.arrow = fill(ax, rotArrow(1,:), rotArrow(2,:), [1 0.8 0]);
+ end
+@@ -123,11 +105,9 @@ function updateCarPlot(hCar, state)
+     w = 0.8; l = 1.4;
+     carShape = [-w/2, -l/2; w/2, -l/2; w/2, l/2; -w/2, l/2]';
+     arrowShape = [0, l/2; -w/3, 0; w/3, 0]';
+-
+     R = [cosd(state.theta-90), -sind(state.theta-90); sind(state.theta-90), cosd(state.theta-90)];
+     rotCar = R * carShape + [state.x; state.y];
+     rotArrow = R * arrowShape + [state.x; state.y];
+-
+     set(hCar.body, 'XData', rotCar(1,:), 'YData', rotCar(2,:));
+     set(hCar.arrow, 'XData', rotArrow(1,:), 'YData', rotArrow(2,:));
+     drawnow;
+@@ -138,23 +118,31 @@ end
+ % =========================================================================
+ function cmd = speechDSPCore2D(audioInput, inputFs)
+     baseDir = fileparts(mfilename('fullpath'));
++    if isempty(baseDir), baseDir = pwd; end
++    
+     templateNames = {'tien.wav', 'lui.wav', 'trai.wav', 'phai.wav', 'dung.wav'};
+     templateFiles = fullfile(baseDir, templateNames);
+     cmdNames = {'tien', 'lui', 'trai', 'phai', 'dung'};
+     targetFs = 8000;
+-    minThresh = 0.45; % Ng╞░ß╗íng t╞░╞íng quan 2D tß╗æi thiß╗âu
+-
++    minThresh = 0.45; % Ng╞░ß╗íng t╞░╞íng quan 2D tß╗æi thiß╗âu cß╗ºa bß║ín
++    
+     x = audioInput;
+     Fs = inputFs;
+     if size(x, 2) > 1, x = mean(x, 2); end
+     if Fs ~= targetFs, x = resample(x, targetFs, Fs); end
+-
++    
+     % Tiß╗ün xß╗¡ l├╜ File Test
+     x = bandpassFilter(x, targetFs);
+     x = removeSilenceAutocorr(x, targetFs);
+-    S_test = computeSpectrogram2D(x, targetFs); % Tr├¡ch xuß║Ñt phß╗ò 2D
+-
++    
++    if length(x) < round(targetFs * 0.12)
++        cmd = 'UNKNOWN';
++        return;
++    end
++    
++    S_test = computeSpectrogram2D(x, targetFs); % Tr├¡ch xuß║Ñt phß╗ò 2D tß╗▒ nhi├¬n
+     peaks = zeros(1, numel(templateFiles));
++    templatesRaw = cell(1, numel(templateFiles));
+     
+     for k = 1:numel(templateFiles)
+         if ~exist(templateFiles{k}, 'file'), continue; end
+@@ -162,12 +150,14 @@ function cmd = speechDSPCore2D(audioInput, inputFs)
+         [y, Fs_y] = audioread(templateFiles{k});
+         y = y(:,1);
+         if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
+-
++        
+         % Tiß╗ün xß╗¡ l├╜ File Template
+         y = bandpassFilter(y, targetFs);
+         y = removeSilenceAutocorr(y, targetFs);
+-        S_template = computeSpectrogram2D(y, targetFs); % Tr├¡ch xuß║Ñt phß╗ò 2D
+-
++        templatesRaw{k} = y; % L╞░u lß║íi t├¡n hiß╗çu sß║ích ─æß╗â xß╗¡ l├╜ ri├¬ng TR├üI/PHß║óI nß║┐u cß║ºn
++        
++        S_template = computeSpectrogram2D(y, targetFs);
++        
+         % T├¡nh 2D Cross-Correlation vß╗¢i ─æiß╗üu kiß╗çn chß╗æng lß╗ùi size
+         if size(S_test, 2) < size(S_template, 2)
+             C2D = normxcorr2(S_test, S_template);
+@@ -177,24 +167,99 @@ function cmd = speechDSPCore2D(audioInput, inputFs)
+         
+         peaks(k) = max(C2D(:)); % L╞░u lß║íi ─æß╗ënh t╞░╞íng quan cß╗▒c ─æß║íi
+     end
+-
++    
+     [maxVal, idx] = max(peaks);
+-    if maxVal >= minThresh
+-        cmd = cmdNames{idx};
+-    else
++    candidateCmd = cmdNames{idx};
++    
++    % Log ─æß╗æi so├ít ─æiß╗âm tß║ºng 1
++    fprintf('\n--- ─ÉIß╗éM T╞»╞áNG QUAN NORMXCORR2 ---\n');
++    fprintf('TIEN: %.2f | LUI: %.2f | TRAI: %.2f | PHAI: %.2f | DUNG: %.2f\n', ...
++        peaks(1), peaks(2), peaks(3), peaks(4), peaks(5));
++    
++    if maxVal < minThresh
+         cmd = 'UNKNOWN';
++        return;
++    end
++    
++    % ---------------------------------------------------------------------
++    % KHß╗ÉI Xß╗¼ L├¥ RI├èNG BIß╗åT D├ÇNH CHO Cß║╢P "TR├üI" V├Ç "PHß║óI"
++    % ---------------------------------------------------------------------
++    idxTrai = 3;
++    idxPhai = 4;
++    idxOthers = [1, 2, 5]; % tien, lui, dung
++    
++    maxOthers = max(peaks(idxOthers));            % ─Éß╗ënh cao nhß║Ñt cß╗ºa nh├│m tß╗½ ngo├ái
++    maxTraiPhai = max(peaks([idxTrai, idxPhai])); % ─Éß╗ënh cao nhß║Ñt cß╗ºa nh├│m vß║ºn ├üI
++    
++    % Nß║┐u nh├│m ngo├ái (tiß║┐n, l├╣i, dß╗½ng) thß║»ng thß║┐ -> Chß╗ìn lu├┤n lß╗çnh ─æ├│
++    if maxOthers >= maxTraiPhai
++        cmd = candidateCmd;
++        fprintf('===> Kß║┐t quß║ú: %s\n', upper(cmd));
++        return;
++    end
++    
++    % Khi vß║ºn "├üI" dß╗Öi l├¬n l├ám TR├üI hoß║╖c PHß║óI dß║½n ─æß║ºu -> Chuyß╗ân v├áo h├ám xß╗¡ l├╜ ri├¬ng
++    if ~isempty(templatesRaw{idxTrai}) && ~isempty(templatesRaw{idxPhai})
++        fprintf('===> Ph├ít hiß╗çn vß║ºn ├üI dß║½n ─æß║ºu (%.2f > %.2f) -> K├¡ch hoß║ít xß╗¡ l├╜ ri├¬ng biß╗çt TR├üI/PHß║óI...\n', ...
++            maxTraiPhai, maxOthers);
++        cmd = resolveTraiPhai(x, templatesRaw{idxTrai}, templatesRaw{idxPhai}, targetFs);
++    else
++        cmd = candidateCmd;
++    end
++end
++
++% =========================================================================
++% H├ÇM Xß╗¼ L├¥ RI├èNG BIß╗åT: PH├éN T├üCH PHß╗ñ ├éM ─Éß║ªU TR├üI vs PHß║óI
++% (Chß╗ë gß╗ìi khi vß║ºn ├üI dß╗Öi l├¬n, sß╗¡ dß╗Ñng Pre-emphasis v├á Hß╗Öp phß╗Ñ ├óm dß║úi cao)
++% =========================================================================
++function finalCmd = resolveTraiPhai(x_test, y_trai, y_phai, Fs)
++    % 1. ├üp dß╗Ñng Pre-emphasis ri├¬ng cho 3 t├¡n hiß╗çu ─æß╗â nhß║Ñn mß║ính dß║úi cao cß╗ºa phß╗Ñ ├óm
++    x_test_pre = preEmphasisFilter(x_test, 0.96);
++    y_trai_pre = preEmphasisFilter(y_trai, 0.96);
++    y_phai_pre = preEmphasisFilter(y_phai, 0.96);
++    
++    % 2. Tr├¡ch xuß║Ñt Spectrogram sau khi Pre-emphasis
++    S_test = computeSpectrogram2D(x_test_pre, Fs);
++    S_trai = computeSpectrogram2D(y_trai_pre, Fs);
++    S_phai = computeSpectrogram2D(y_phai_pre, Fs);
++    
++    % 3. Cß║»t hß╗Öp phß╗Ñ ├óm: Dß║úi 1000 - 3400 Hz, 100 ms ─æß║ºu (~12 khung)
++    binStart = round(1000 / (Fs / 512));
++    binEnd   = round(3400 / (Fs / 512));
++    
++    headTest = min(size(S_test, 2), 12);
++    headTrai = min(size(S_trai, 2), 12);
++    headPhai = min(size(S_phai, 2), 12);
++    
++    box_test = S_test(binStart:binEnd, 1:headTest);
++    box_trai = S_trai(binStart:binEnd, 1:headTrai);
++    box_phai = S_phai(binStart:binEnd, 1:headPhai);
++    
++    % 4. So khß╗¢p tr╞░ß╗út ngß║»n cß╗Ñc bß╗Ö bß║▒ng normxcorr2 tr├¬n hß╗Öp phß╗Ñ ├óm
++    C_trai = normxcorr2(box_trai, box_test);
++    C_phai = normxcorr2(box_phai, box_test);
++    
++    scoreTrai = max(C_trai(:));
++    scorePhai = max(C_phai(:));
++    
++    fprintf('--- [Xß╗¼ L├¥ RI├èNG] So khß╗¢p phß╗Ñ ├óm dß║úi cao -> TRAI: %.3f | PHAI: %.3f\n', scoreTrai, scorePhai);
++    
++    if scoreTrai >= scorePhai
++        finalCmd = 'trai';
++        fprintf('===> QUYß║╛T ─Éß╗èNH CUß╗ÉI C├ÖNG: ** TR├üI **\n');
++    else
++        finalCmd = 'phai';
++        fprintf('===> QUYß║╛T ─Éß╗èNH CUß╗ÉI C├ÖNG: ** PHß║óI **\n');
+     end
+ end
+ 
+ % --- H├ÇM PHß╗ñ 1: TR├ìCH XUß║ñT MA TRß║¼N PHß╗ö 2D ---
+ function S_norm = computeSpectrogram2D(x, Fs)
+-    winLen = round(Fs * 0.030);   % Cß╗¡a sß╗ò 30 ms
+-    overlap = round(winLen * 0.7); % ─Éß╗Ö chß╗ông lß║Ñp 70%
++    winLen = round(Fs * 0.035);   % Cß╗¡a sß╗ò 30 ms
++    overlap = round(winLen * 0.6); % ─Éß╗Ö chß╗ông lß║Ñp 70%
+     nfft = 512;                   % Sß╗æ ─æiß╗âm FFT
+-
+     [S, ~, ~] = spectrogram(x, winLen, overlap, nfft, Fs);
+     S_dB = 20 * log10(abs(S) + 1e-6); % Chuyß╗ân ─æß╗òi sang Logarit (dB)
+-
+     % Chuß║⌐n h├│a Ma trß║¡n Phß╗ò (Zero-Mean & Unit Variance)
+     S_norm = (S_dB - mean(S_dB(:))) / (std(S_dB(:)) + 1e-6);
+ end
+@@ -205,31 +270,25 @@ function x_clean = removeSilenceAutocorr(x, Fs)
+     hopLen = round(frameLen / 2);
+     numFrames = floor((length(x) - frameLen) / hopLen) + 1;
+     if numFrames < 1, x_clean = x; return; end
+-
+     energy = zeros(1, numFrames);
+     autocorrPeak = zeros(1, numFrames);
+     minLag = round(Fs / 500); maxLag = round(Fs / 80);
+-
+     for i = 1:numFrames
+         startSample = (i-1)*hopLen + 1;
+         frame = x(startSample : startSample + frameLen - 1);
+         energy(i) = sum(frame.^2);
+-
+         [r, lags] = xcorr(frame, 'coeff');
+         zeroIdx = find(lags == 0);
+         searchWin = r(zeroIdx + minLag : zeroIdx + maxLag);
+         if ~isempty(searchWin), autocorrPeak(i) = max(searchWin); end
+     end
+-
+     maxE = max(energy);
+     if maxE == 0, x_clean = x; return; end
+-
+     isVoiced = (autocorrPeak > 0.3) & (energy > 0.005 * maxE);
+     isUnvoiced = (energy > 0.008 * maxE);
+     activeFrames = find(isVoiced | isUnvoiced);
+-
+     if ~isempty(activeFrames)
+-        padSamples = round(Fs * 0.05); % Lß╗ü 150ms
++        padSamples = round(Fs * 0.05); % Lß╗ü 50ms tr├ính cß╗Ñt phß╗Ñ ├óm
+         startIdx = max(1, (activeFrames(1)-1)*hopLen + 1 - padSamples);
+         endIdx = min(length(x), (activeFrames(end)-1)*hopLen + frameLen + padSamples);
+         x_clean = x(startIdx:endIdx);
+@@ -241,9 +300,15 @@ end
+ % --- H├ÇM PHß╗ñ 3: BANDPASS FILTER ---
+ function x_filtered = bandpassFilter(x, Fs)
+     try
+-        x_filtered = bandpass(x, [300 3400], Fs);
++        x_filtered = bandpass(x, [150 3400], Fs);
+     catch
+-        [b, a] = butter(2, [300 3400] / (Fs/2), 'bandpass');
++        [b, a] = butter(2, [150 3400] / (Fs/2), 'bandpass');
+         x_filtered = filtfilt(b, a, x);
+     end
++end
++
++% --- H├ÇM PHß╗ñ 4: Bß╗ÿ Lß╗îC PRE-EMPHASIS CHO RI├èNG Cß║╢P TR├üI / PHß║óI ---
++function y = preEmphasisFilter(x, alpha)
++    if nargin < 2, alpha = 0.96; end
++    y = filter([1, -alpha], 1, x);
+ end
+\ No newline at end of file
+commit 802b2be | 2026-09-18 | them file
+
+diff --git a/code/speechrecognition.m b/code/speechrecognition.m
+index 56ec550..d49c3f9 100644
+--- a/code/speechrecognition.m
++++ b/code/speechrecognition.m
+@@ -1,242 +1,244 @@
+-clc; clear; close all;
+-
+-%% =========================================================
+-targetFs = 8000;
+-baseDir = fileparts(mfilename('fullpath'));
+-templateNames = {'tien.wav', 'lui.wav', 'trai.wav', 'phai.wav', 'dung.wav'};
+-templateFiles = fullfile(baseDir, templateNames);
+-commands = {'TIEN', 'LUI', 'TRAI', 'PHAI', 'DUNG'};
+-n = numel(templateFiles);
+-
+-% Khß╗ƒi tß║ío mß║úng l╞░u ─æß║╖c tr╞░ng
+-env_templates = cell(1, n);
+-zcr_templates = cell(1, n);
+-
+-fprintf('─Éang nß║íp file mß║½u...\n');
+-for k = 1:n
+-    [y, Fs_y] = audioread(templateFiles{k});
+-    y = y(:,1);
+-    if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
+-    
+-    y = bandpassFilter(y, targetFs);
+-    y = removeSilenceAutocorr(y, targetFs);
+-    
+-    % Tr├¡ch xuß║Ñt sß║╡n v├á l╞░u lß║íi
+-    env_templates{k} = normalizeSignal(abs(hilbert(y)));
+-    zcr_templates{k} = normalizeSignal(getZCRContour(y, targetFs));
+-end
+-fprintf('Ho├án tß║Ñt nß║íp mß║½u!\n');
+-
+-%% =========================================================
+-
+-% 2. KHß╗₧I Tß║áO Bß║óN ─Éß╗Æ M├ö PHß╗ÄNG XE
+-
+-% ==========================================================
+-
+-figure('Name', 'MO PHONG XE GIONG NOI', 'Color', 'w');
+-
+-axis([0 100 0 100]); axis equal; grid on; hold on;
+-
+-xlabel('X'); ylabel('Y'); title('XE DIEU KHIEN BANG GIONG NOI');
++function speechrecognition()
++% GIAO DIß╗åN M├ö PHß╗ÄNG XE 2D ─ÉIß╗ÇU KHIß╗éN Bß║░NG GIß╗îNG N├ôI 
++% Sß╗¡ dß╗Ñng l├╡i 2D Spectrogram Cross-Correlation chß╗æng nhiß╗àu pha v├á nhß║¡n diß╗çn phß╗ò
++
++    % 1. Khß╗ƒi tß║ío Cß╗¡a sß╗ò ─Éß╗ô hß╗ìa (Figure & Axes)
++    fig = figure('Name', 'M├┤ Phß╗Ång Xe ─Éiß╗üu Khiß╗ân Bß║▒ng Giß╗ìng N├│i 2D (Spectrogram)', ...
++                 'NumberTitle', 'off', 'Position', [150, 100, 900, 650], ...
++                 'Color', [0.94 0.94 0.94]);
++
++    ax = axes('Parent', fig, 'Position', [0.08, 0.1, 0.65, 0.82]);
++    hold(ax, 'on'); grid(ax, 'on');
++    axis(ax, [-10 10 -10 10]);
++    xlabel(ax, 'Tß╗ìa ─æß╗Ö X (m)', 'FontWeight', 'bold'); 
++    ylabel(ax, 'Tß╗ìa ─æß╗Ö Y (m)', 'FontWeight', 'bold');
++    title(ax, 'Bß║óN ─Éß╗Æ M├ö PHß╗ÄNG DI CHUYß╗éN Cß╗ªA XE', 'FontSize', 12, 'Color', [0 0.3 0.6]);
++
++    % Trß║íng th├íi ban ─æß║ºu cß╗ºa xe: x=0, y=0, theta = 90 ─æß╗Ö (h╞░ß╗¢ng l├¬n tr├¬n)
++    carState = struct('x', 0, 'y', 0, 'theta', 90);
++
++    % Vß║╜ xe v├á ─æ╞░ß╗¥ng vß║┐t di chuyß╗ân (Trajectory)
++    hCar = drawCar(ax, carState);
++    hTrail = plot(ax, carState.x, carState.y, 'r--', 'LineWidth', 1.5);
++    trailX = [carState.x];
++    trailY = [carState.y];
++
++    % 2. Khung Bß║úng ─Éiß╗üu Khiß╗ân & Trß║íng Th├íi (B├¬n phß║úi)
++    uicontrol('Style', 'text', 'Position', [680, 520, 200, 30], ...
++              'String', 'Bß║óNG ─ÉIß╗ÇU KHIß╗éN', 'FontSize', 11, 'FontWeight', 'bold', ...
++              'BackgroundColor', [0.94 0.94 0.94]);
++
++    hStatus = uicontrol('Style', 'text', 'Position', [670, 440, 210, 60], ...
++                        'FontSize', 10, 'FontWeight', 'bold', 'ForegroundColor', [0.8 0 0], ...
++                        'String', 'Trß║íng th├íi: ─Éang chß╗¥ lß╗çnh...', ...
++                        'BackgroundColor', [1 1 0.9], 'Style', 'text');
++
++    % N├║t ghi ├óm trß╗▒c tiß║┐p tß╗½ microphone
++    uicontrol('Style', 'pushbutton', 'String', 'GHI AM GIONG NOI', ...
++              'Position', [680, 370, 190, 45], 'FontSize', 10, 'FontWeight', 'bold', ...
++              'BackgroundColor', [0.1 0.6 0.2], 'ForegroundColor', 'w', ...
++              'Callback', @(~,~) testAudioCommand());
++
++    % C├íc n├║t ph├¡m bß║Ñm m├┤ phß╗Ång nhanh (d├╣ng ─æß╗â test giao diß╗çn)
++    uicontrol('Style', 'text', 'Position', [680, 310, 190, 20], 'String', '--- Test Nhanh Ph├¡m ---');
++    uicontrol('Style', 'pushbutton', 'String', 'TIß║╛N', 'Position', [740, 260, 70, 30], 'Callback', @(~,~) executeCommand('tien'));
++    uicontrol('Style', 'pushbutton', 'String', 'L├ÖI',  'Position', [740, 180, 70, 30], 'Callback', @(~,~) executeCommand('lui'));
++    uicontrol('Style', 'pushbutton', 'String', 'TR├üI', 'Position', [665, 220, 70, 30], 'Callback', @(~,~) executeCommand('trai'));
++    uicontrol('Style', 'pushbutton', 'String', 'PHß║óI', 'Position', [815, 220, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
++    uicontrol('Style', 'pushbutton', 'String', 'Dß╗¬NG', 'Position', [740, 220, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
++
++    % --- H├ÇM THß╗░C THI DI CHUYß╗éN XE ---
++    function executeCommand(cmd)
++        stepSize = 1.5; % Khoß║úng dß╗ïch chuyß╗ân mß╗ùi b╞░ß╗¢c (m)
++        rotAngle = 30;  % G├│c quay mß╗ùi b╞░ß╗¢c (─æß╗Ö)
++
++        switch lower(cmd)
++            case 'tien'
++                carState.x = carState.x + stepSize * cosd(carState.theta);
++                carState.y = carState.y + stepSize * sind(carState.theta);
++                statusText = 'Lß╗çnh: TIß║╛N Γ¼å∩╕Å';
++            case 'lui'
++                carState.x = carState.x - stepSize * cosd(carState.theta);
++                carState.y = carState.y - stepSize * sind(carState.theta);
++                statusText = 'Lß╗çnh: L├ÖI Γ¼ç∩╕Å';
++            case 'trai'
++                carState.theta = carState.theta + rotAngle;
++                statusText = 'Lß╗çnh: Rß║╝ TR├üI Γå⌐∩╕Å';
++            case 'phai'
++                carState.theta = carState.theta - rotAngle;
++                statusText = 'Lß╗çnh: Rß║╝ PHß║óI Γå¬∩╕Å';
++            case 'dung'
++                statusText = 'Lß╗çnh: Dß╗¬NG XE ≡ƒ¢æ';
++        end
++
++        % Cß║¡p nhß║¡t bß║úng trß║íng th├íi
++        set(hStatus, 'String', sprintf('─É├ú nhß║¡n dß║íng: "%s"\n(x=%.1f, y=%.1f, ╬╕=%.0f┬░)', ...
++            upper(cmd), carState.x, carState.y, carState.theta));
++
++        % Cß║¡p nhß║¡t quß╗╣ ─æß║ío di chuyß╗ân
++        trailX(end+1) = carState.x;
++        trailY(end+1) = carState.y;
++        set(hTrail, 'XData', trailX, 'YData', trailY);
++
++        % Cß║¡p nhß║¡t h├¼nh vß║╜ xe tr├¬n ─æß╗ô thß╗ï
++        updateCarPlot(hCar, carState);
++    end
+ 
+-carX = 50; carY = 50; angle = 90;
++    % --- H├ÇM ─Éß╗îC FILE ├éM THANH & CHß║áY THUß║¼T TO├üN DSP ---
++    function testAudioCommand()
++        set(hStatus, 'String', 'Dang ghi am trong 2 giay...');
++        drawnow;
++        recorder = audiorecorder(8000, 16, 1);
++        recordblocking(recorder, 2);
++        recordedAudio = getaudiodata(recorder);
++        recordedFs = 8000;
++        % Gß╗ìi thuß║¡t to├ín nhß║¡n dß║íng lß╗çnh DSP (Bß║ún 2D Spectrogram)
++        detectedCmd = speechDSPCore2D(recordedAudio, recordedFs);
++
++        if ~strcmp(detectedCmd, 'UNKNOWN')
++            executeCommand(detectedCmd);
++        else
++            set(hStatus, 'String', 'KH├öNG NHß║¼N Dß║áNG ─É╞»ß╗óC!\n(─Éß╗ënh t╞░╞íng quan 2D qu├í thß║Ñp)');
++        end
++    end
++end
+ 
+-carLength = 10; carWidth = 6;
++% =========================================================================
++% H├ÇM Vß║╝ V├Ç Cß║¼P NHß║¼T H├îNH Dß║áNG XE 2D
++% =========================================================================
++function hCar = drawCar(ax, state)
++    w = 0.8; l = 1.4; % K├¡ch th╞░ß╗¢c rß╗Öng/d├ái cß╗ºa xe
++    carShape = [-w/2, -l/2; w/2, -l/2; w/2, l/2; -w/2, l/2]';
++    arrowShape = [0, l/2; -w/3, 0; w/3, 0]'; % M┼⌐i t├¬n chß╗ë h╞░ß╗¢ng xe
+ 
+-speed = 5; turnAngle = 25;
++    R = [cosd(state.theta-90), -sind(state.theta-90); sind(state.theta-90), cosd(state.theta-90)];
++    rotCar = R * carShape + [state.x; state.y];
++    rotArrow = R * arrowShape + [state.x; state.y];
+ 
+-[carBody, carFront] = drawCar(carX, carY, angle, carLength, carWidth);
++    hCar.body = fill(ax, rotCar(1,:), rotCar(2,:), [0.2 0.4 0.8], 'FaceAlpha', 0.8);
++    hCar.arrow = fill(ax, rotArrow(1,:), rotArrow(2,:), [1 0.8 0]);
++end
+ 
+-%% =========================================================
++function updateCarPlot(hCar, state)
++    w = 0.8; l = 1.4;
++    carShape = [-w/2, -l/2; w/2, -l/2; w/2, l/2; -w/2, l/2]';
++    arrowShape = [0, l/2; -w/3, 0; w/3, 0]';
+ 
+-% 3. V├ÆNG Lß║¼P NHß║¼N Dß║áNG & ─ÉIß╗ÇU KHIß╗éN
++    R = [cosd(state.theta-90), -sind(state.theta-90); sind(state.theta-90), cosd(state.theta-90)];
++    rotCar = R * carShape + [state.x; state.y];
++    rotArrow = R * arrowShape + [state.x; state.y];
+ 
+-minThreshold = 0.35; 
++    set(hCar.body, 'XData', rotCar(1,:), 'YData', rotCar(2,:));
++    set(hCar.arrow, 'XData', rotArrow(1,:), 'YData', rotArrow(2,:));
++    drawnow;
++end
+ 
+-while ishandle(carBody)
+-    fprintf('\n>>> ─Éang nghe... (N├│i lß╗çnh cß╗ºa bß║ín)\n');
+-    
+-    % --- THU ├éM Tß╗¬ MICRO ---
+-    recorder = audiorecorder(targetFs, 16, 1);
+-    recordblocking(recorder, 2); % Thu 2 gi├óy
+-    x = getaudiodata(recorder);
+-    x = x(:,1);
+-    
+-    % --- TIß╗ÇN Xß╗¼ L├¥ T├ìN HIß╗åU THU ─É╞»ß╗óC ---
++% =========================================================================
++% L├òI THUß║¼T TO├üN NHß║¼N Dß║áNG 2D SPECTROGRAM
++% =========================================================================
++function cmd = speechDSPCore2D(audioInput, inputFs)
++    baseDir = fileparts(mfilename('fullpath'));
++    templateNames = {'tien.wav', 'lui.wav', 'trai.wav', 'phai.wav', 'dung.wav'};
++    templateFiles = fullfile(baseDir, templateNames);
++    cmdNames = {'tien', 'lui', 'trai', 'phai', 'dung'};
++    targetFs = 8000;
++    minThresh = 0.45; % Ng╞░ß╗íng t╞░╞íng quan 2D tß╗æi thiß╗âu
++
++    x = audioInput;
++    Fs = inputFs;
++    if size(x, 2) > 1, x = mean(x, 2); end
++    if Fs ~= targetFs, x = resample(x, targetFs, Fs); end
++
++    % Tiß╗ün xß╗¡ l├╜ File Test
+     x = bandpassFilter(x, targetFs);
+     x = removeSilenceAutocorr(x, targetFs);
++    S_test = computeSpectrogram2D(x, targetFs); % Tr├¡ch xuß║Ñt phß╗ò 2D
++
++    peaks = zeros(1, numel(templateFiles));
+     
+-    % Nß║┐u t├¡n hiß╗çu qu├í ngß║»n (chß╗ë c├│ tiß║┐ng ß╗ôn), bß╗Å qua
+-    if length(x) < targetFs * 0.1
+-        disp('Ch╞░a nghe r├╡!'); continue;
+-    end
+-    
+-    % --- TR├ìCH XUß║ñT ─Éß║╢C TR╞»NG T├ìN HIß╗åU THß╗¼ ---
+-    x_env = normalizeSignal(abs(hilbert(x)));
+-    x_zcr = normalizeSignal(getZCRContour(x, targetFs));
+-    
+-    % --- SO S├üNH (CROSS-CORRELATION) ---
+-    peaks = zeros(1, n);
+-    for k = 1:n
+-        [corr_env, ~] = xcorr(x_env, env_templates{k}, 'none');
+-        [corr_zcr, ~] = xcorr(x_zcr, zcr_templates{k}, 'none');
++    for k = 1:numel(templateFiles)
++        if ~exist(templateFiles{k}, 'file'), continue; end
+         
+-        peak_env = max(corr_env);
+-        peak_zcr = max(corr_zcr);
++        [y, Fs_y] = audioread(templateFiles{k});
++        y = y(:,1);
++        if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
++
++        % Tiß╗ün xß╗¡ l├╜ File Template
++        y = bandpassFilter(y, targetFs);
++        y = removeSilenceAutocorr(y, targetFs);
++        S_template = computeSpectrogram2D(y, targetFs); % Tr├¡ch xuß║Ñt phß╗ò 2D
++
++        % T├¡nh 2D Cross-Correlation vß╗¢i ─æiß╗üu kiß╗çn chß╗æng lß╗ùi size
++        if size(S_test, 2) < size(S_template, 2)
++            C2D = normxcorr2(S_test, S_template);
++        else
++            C2D = normxcorr2(S_template, S_test);
++        end
+         
+-        % Tinh chß╗ënh trß╗ìng sß╗æ (N├¬n test thß╗¡ 0.5 - 0.5 cho tiß║┐ng Viß╗çt)
+-        peaks(k) = (0.3 * peak_env) + (0.7 * peak_zcr);
++        peaks(k) = max(C2D(:)); % L╞░u lß║íi ─æß╗ënh t╞░╞íng quan cß╗▒c ─æß║íi
+     end
+-    
+-    % --- XUß║ñT Kß║╛T QUß║ó & ─ÉIß╗ÇU KHIß╗éN ---
+-    [maxPeak, idx] = max(peaks);
+-    
+-    if maxPeak >= minThreshold
+-        command = commands{idx};
+-        fprintf('>>> Lß╗çnh: %s (Score: %.2f)\n', command, maxPeak);
+-% --- ─ÉIß╗ÇU KHIß╗éN XE ---
+-
+-switch command
+-
+-case 'TIEN'
+-
+-carX = carX + speed * cosd(angle); carY = carY + speed * sind(angle);
+-
+-case 'LUI'
+-
+-carX = carX - speed * cosd(angle); carY = carY - speed * sind(angle);
+-
+-case 'TRAI'
+-
+-angle = angle + turnAngle;
+-
+-case 'PHAI'
+-
+-angle = angle - turnAngle;
+-
+-case 'DUNG'
+-
+-% Dß╗½ng xe
+-
+-case 'TIEN_TRAI'
+-
+-angle = angle + turnAngle; carX = carX + speed * cosd(angle); carY = carY + speed * sind(angle);
+-
+-case 'TIEN_PHAI'
+-
+-angle = angle - turnAngle; carX = carX + speed * cosd(angle); carY = carY + speed * sind(angle);
+-
+-case 'LUI_TRAI'
+-
+-angle = angle + turnAngle; carX = carX - speed * cosd(angle); carY = carY - speed * sind(angle);
+-
+-case 'LUI_PHAI'
+ 
+-angle = angle - turnAngle; carX = carX - speed * cosd(angle); carY = carY - speed * sind(angle);
+-
+-case 'QUAY_TRAI'
+-
+-angle = angle + 90;
+-
+-case 'QUAY_PHAI'
+-
+-angle = angle - 90;
+-
+-end
+-
+-
+-% Giß╗¢i hß║ín xe trong bi├¬n ─æß╗Ö 0-100
+-
+-carX = max(8, min(92, carX)); carY = max(8, min(92, carY));
+-
+-
+-% Cß║¡p nhß║¡t ─æß╗ô hß╗ìa xe
+-
+-if ishandle(carBody), delete(carBody); end
+-
+-if ishandle(carFront), delete(carFront); end
+-
+-[carBody, carFront] = drawCar(carX, carY, angle, carLength, carWidth);
+-
+-
+-title(sprintf('─Éang chß║íy: %s | X = %.1f | Y = %.1f | H╞░ß╗¢ng = %.0f deg', command, carX, carY, angle));
+-
+-drawnow;
+-else
+-        fprintf('>>> Kh├┤ng r├╡ lß╗çnh (Score: %.2f < %.2f)\n', maxPeak, minThreshold);
++    [maxVal, idx] = max(peaks);
++    if maxVal >= minThresh
++        cmd = cmdNames{idx};
++    else
++        cmd = 'UNKNOWN';
+     end
+-
+ end
+ 
+-%% =========================================================
+-cd('C:\Users\GIGABYTE\OneDrive\Documents\GitHub\DSP-project\code')
+-speechrecognition
+-% C├üC H├ÇM Xß╗¼ L├¥ T├ìN HIß╗åU & ─Éß╗Æ Hß╗îA
++% --- H├ÇM PHß╗ñ 1: TR├ìCH XUß║ñT MA TRß║¼N PHß╗ö 2D ---
++function S_norm = computeSpectrogram2D(x, Fs)
++    winLen = round(Fs * 0.030);   % Cß╗¡a sß╗ò 30 ms
++    overlap = round(winLen * 0.7); % ─Éß╗Ö chß╗ông lß║Ñp 70%
++    nfft = 512;                   % Sß╗æ ─æiß╗âm FFT
+ 
+-% ==========================================================
++    [S, ~, ~] = spectrogram(x, winLen, overlap, nfft, Fs);
++    S_dB = 20 * log10(abs(S) + 1e-6); % Chuyß╗ân ─æß╗òi sang Logarit (dB)
+ 
+-function zcr_contour = getZCRContour(x, Fs)
+-    winLen = round(Fs * 0.02); % Cß╗¡a sß╗ò tr╞░ß╗út 20ms
+-    % ─Éß║┐m sß╗▒ thay ─æß╗òi dß║Ñu (zero-crossings)
+-    crossings = abs(diff(x > 0)); 
+-    crossings = [crossings; 0]; % B├╣ lß║íi 1 mß║½u bß╗ï mß║Ñt do h├ám diff
+-    
+-    % D├╣ng trung b├¼nh tr╞░ß╗út (moving average) ─æß╗â l├ám m╞░ß╗út th├ánh mß╗Öt ─æ╞░ß╗¥ng bao
+-    zcr_contour = movmean(crossings, winLen);
++    % Chuß║⌐n h├│a Ma trß║¡n Phß╗ò (Zero-Mean & Unit Variance)
++    S_norm = (S_dB - mean(S_dB(:))) / (std(S_dB(:)) + 1e-6);
+ end
+ 
+-% --- H├ÇM PHß╗ñ: VAD Cß║«T KHOß║óNG Lß║╢NG (Giß╗» nguy├¬n h├ám ─æ├ú n├óng cß║Ñp ZCR tr╞░ß╗¢c ─æ├│) ---
++% --- H├ÇM PHß╗ñ 2: VAD AUTOCORRELATION ---
+ function x_clean = removeSilenceAutocorr(x, Fs)
+-    frameLen = max(1, round(Fs * 0.02)); 
+-    hopLen = round(frameLen / 2);        
++    frameLen = max(1, round(Fs * 0.02));
++    hopLen = round(frameLen / 2);
+     numFrames = floor((length(x) - frameLen) / hopLen) + 1;
+-    
+     if numFrames < 1, x_clean = x; return; end
+-    
++
+     energy = zeros(1, numFrames);
+     autocorrPeak = zeros(1, numFrames);
+-    zcr = zeros(1, numFrames); 
+-    
+-    minLag = round(Fs / 500); maxLag = round(Fs / 80);  
+-    
++    minLag = round(Fs / 500); maxLag = round(Fs / 80);
++
+     for i = 1:numFrames
+         startSample = (i-1)*hopLen + 1;
+         frame = x(startSample : startSample + frameLen - 1);
+         energy(i) = sum(frame.^2);
+-        
++
+         [r, lags] = xcorr(frame, 'coeff');
+-        zeroLagIdx = find(lags == 0);
+-        searchWin = r(zeroLagIdx + minLag : zeroLagIdx + maxLag);
++        zeroIdx = find(lags == 0);
++        searchWin = r(zeroIdx + minLag : zeroIdx + maxLag);
+         if ~isempty(searchWin), autocorrPeak(i) = max(searchWin); end
+-        
+-        zcr(i) = sum(abs(diff(frame > 0))) / (frameLen - 1);
+     end
+-    
++
+     maxE = max(energy);
+     if maxE == 0, x_clean = x; return; end
+-    
+-    isVoiced = (autocorrPeak > 0.22) & (energy > 0.005 * maxE);
+-    isUnvoiced = (energy > 0.002 * maxE) & (zcr > 0.25);
++
++    isVoiced = (autocorrPeak > 0.3) & (energy > 0.005 * maxE);
++    isUnvoiced = (energy > 0.008 * maxE);
+     activeFrames = find(isVoiced | isUnvoiced);
+-    
++
+     if ~isempty(activeFrames)
+-        padSamples = round(Fs * 0.15); 
+-        startSample = (activeFrames(1)-1)*hopLen + 1;
+-        endSample = (activeFrames(end)-1)*hopLen + frameLen;
+-        startIdx = max(1, startSample - padSamples);
+-        endIdx = min(length(x), endSample + padSamples);
++        padSamples = round(Fs * 0.05); % Lß╗ü 150ms
++        startIdx = max(1, (activeFrames(1)-1)*hopLen + 1 - padSamples);
++        endIdx = min(length(x), (activeFrames(end)-1)*hopLen + frameLen + padSamples);
+         x_clean = x(startIdx:endIdx);
+     else
+         x_clean = x;
+     end
+ end
+ 
+-function y = normalizeSignal(x)
+-    x = x(:) - mean(x);
+-    n = norm(x);
+-    if n > 0, y = x / n; else, y = zeros(size(x)); end
+-end
+-
++% --- H├ÇM PHß╗ñ 3: BANDPASS FILTER ---
+ function x_filtered = bandpassFilter(x, Fs)
+     try
+         x_filtered = bandpass(x, [300 3400], Fs);
+@@ -244,19 +246,4 @@ function x_filtered = bandpassFilter(x, Fs)
+         [b, a] = butter(2, [300 3400] / (Fs/2), 'bandpass');
+         x_filtered = filtfilt(b, a, x);
+     end
+-end
+-
+-function [body, front] = drawCar(x, y, angle, carLength, carWidth)
+-    points = [-carLength/2, -carWidth/2; ...
+-               carLength/2, -carWidth/2; ...
+-               carLength/2,  carWidth/2; ...
+-              -carLength/2,  carWidth/2];
+-    rotation = [cosd(angle), -sind(angle); sind(angle), cosd(angle)];
+-    rotated = (rotation * points')';
+-    body = patch(rotated(:,1) + x, rotated(:,2) + y, 'b', ...
+-        'EdgeColor', 'k', 'LineWidth', 2);
+-
+-    frontX = x + cosd(angle) * carLength / 2;
+-    frontY = y + sind(angle) * carLength / 2;
+-    front = plot([x, frontX], [y, frontY], 'r', 'LineWidth', 3);
+ end
+\ No newline at end of file
+commit b6b95c2 | 2026-09-18 | thay ─æß╗òi lß║íi
+
+diff --git a/code/speechrecognition.m b/code/speechrecognition.m
+index 38237e3..56ec550 100644
+--- a/code/speechrecognition.m
++++ b/code/speechrecognition.m
+@@ -1,4 +1,3 @@
+-
+ clc; clear; close all;
+ 
+ %% =========================================================
+@@ -20,7 +19,7 @@ for k = 1:n
+     if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
+     
+     y = bandpassFilter(y, targetFs);
+-    y = removeSilenceAutocorr(y, targetFs); % Sß╗¡ dß╗Ñng Autocorrelation cß║»t khoß║úng lß║╖ng
++    y = removeSilenceAutocorr(y, targetFs);
+     
+     % Tr├¡ch xuß║Ñt sß║╡n v├á l╞░u lß║íi
+     env_templates{k} = normalizeSignal(abs(hilbert(y)));
+@@ -54,7 +53,7 @@ speed = 5; turnAngle = 25;
+ 
+ minThreshold = 0.35; 
+ 
+-while true % (Hoß║╖c while ishandle(carBody))
++while ishandle(carBody)
+     fprintf('\n>>> ─Éang nghe... (N├│i lß╗çnh cß╗ºa bß║ín)\n');
+     
+     % --- THU ├éM Tß╗¬ MICRO ---
+@@ -82,11 +81,11 @@ while true % (Hoß║╖c while ishandle(carBody))
+         [corr_env, ~] = xcorr(x_env, env_templates{k}, 'none');
+         [corr_zcr, ~] = xcorr(x_zcr, zcr_templates{k}, 'none');
+         
+-        peak_env = max(abs(corr_env));
+-        peak_zcr = max(abs(corr_zcr));
++        peak_env = max(corr_env);
++        peak_zcr = max(corr_zcr);
+         
+         % Tinh chß╗ënh trß╗ìng sß╗æ (N├¬n test thß╗¡ 0.5 - 0.5 cho tiß║┐ng Viß╗çt)
+-        peaks(k) = (0.5 * peak_env) + (0.5 * peak_zcr); 
++        peaks(k) = (0.3 * peak_env) + (0.7 * peak_zcr);
+     end
+     
+     % --- XUß║ñT Kß║╛T QUß║ó & ─ÉIß╗ÇU KHIß╗éN ---
+@@ -170,75 +169,94 @@ else
+ end
+ 
+ %% =========================================================
+-
++cd('C:\Users\GIGABYTE\OneDrive\Documents\GitHub\DSP-project\code')
++speechrecognition
+ % C├üC H├ÇM Xß╗¼ L├¥ T├ìN HIß╗åU & ─Éß╗Æ Hß╗îA
+ 
+ % ==========================================================
+ 
+-function cleanAudio = processAudio(audio, Fs)
+-
+-if size(audio, 2) > 1, audio = mean(audio, 2); end
+-
+-[b, a] = butter(4, [300 3800] / (Fs/2), 'bandpass');
+-
+-audio = filter(b, a, audio);
+-
+-
+-maxVal = max(abs(audio));
+-
+-if maxVal > 0, audio = audio / maxVal; end
+-
+-
+-noiseFloor = mean(audio(1:min(1600, floor(length(audio)*0.1))).^2);
+-
+-energy = audio.^2;
+-
+-speechIdx = find(energy > max(noiseFloor * 4, 0.003));
+-
+-
+-if ~isempty(speechIdx)
+-
+-startIdx = max(1, speechIdx(1) - 600);
+-
+-endIdx = min(length(audio), speechIdx(end) + 600);
+-
+-cleanAudio = audio(startIdx:endIdx);
+-
+-else
+-
+-cleanAudio = audio;
+-
++function zcr_contour = getZCRContour(x, Fs)
++    winLen = round(Fs * 0.02); % Cß╗¡a sß╗ò tr╞░ß╗út 20ms
++    % ─Éß║┐m sß╗▒ thay ─æß╗òi dß║Ñu (zero-crossings)
++    crossings = abs(diff(x > 0)); 
++    crossings = [crossings; 0]; % B├╣ lß║íi 1 mß║½u bß╗ï mß║Ñt do h├ám diff
++    
++    % D├╣ng trung b├¼nh tr╞░ß╗út (moving average) ─æß╗â l├ám m╞░ß╗út th├ánh mß╗Öt ─æ╞░ß╗¥ng bao
++    zcr_contour = movmean(crossings, winLen);
+ end
+ 
+-
+-maxClean = max(abs(cleanAudio));
+-
+-if maxClean > 0, cleanAudio = cleanAudio / maxClean; end
+-
++% --- H├ÇM PHß╗ñ: VAD Cß║«T KHOß║óNG Lß║╢NG (Giß╗» nguy├¬n h├ám ─æ├ú n├óng cß║Ñp ZCR tr╞░ß╗¢c ─æ├│) ---
++function x_clean = removeSilenceAutocorr(x, Fs)
++    frameLen = max(1, round(Fs * 0.02)); 
++    hopLen = round(frameLen / 2);        
++    numFrames = floor((length(x) - frameLen) / hopLen) + 1;
++    
++    if numFrames < 1, x_clean = x; return; end
++    
++    energy = zeros(1, numFrames);
++    autocorrPeak = zeros(1, numFrames);
++    zcr = zeros(1, numFrames); 
++    
++    minLag = round(Fs / 500); maxLag = round(Fs / 80);  
++    
++    for i = 1:numFrames
++        startSample = (i-1)*hopLen + 1;
++        frame = x(startSample : startSample + frameLen - 1);
++        energy(i) = sum(frame.^2);
++        
++        [r, lags] = xcorr(frame, 'coeff');
++        zeroLagIdx = find(lags == 0);
++        searchWin = r(zeroLagIdx + minLag : zeroLagIdx + maxLag);
++        if ~isempty(searchWin), autocorrPeak(i) = max(searchWin); end
++        
++        zcr(i) = sum(abs(diff(frame > 0))) / (frameLen - 1);
++    end
++    
++    maxE = max(energy);
++    if maxE == 0, x_clean = x; return; end
++    
++    isVoiced = (autocorrPeak > 0.22) & (energy > 0.005 * maxE);
++    isUnvoiced = (energy > 0.002 * maxE) & (zcr > 0.25);
++    activeFrames = find(isVoiced | isUnvoiced);
++    
++    if ~isempty(activeFrames)
++        padSamples = round(Fs * 0.15); 
++        startSample = (activeFrames(1)-1)*hopLen + 1;
++        endSample = (activeFrames(end)-1)*hopLen + frameLen;
++        startIdx = max(1, startSample - padSamples);
++        endIdx = min(length(x), endSample + padSamples);
++        x_clean = x(startIdx:endIdx);
++    else
++        x_clean = x;
++    end
+ end
+ 
+-function features = extractRobustMFCC(audio, Fs)
+-
+-coeffs = mfcc(audio, Fs);
+-
+-features = (coeffs - mean(coeffs, 1)) ./ (std(coeffs, 0, 1) + eps);
+-
++function y = normalizeSignal(x)
++    x = x(:) - mean(x);
++    n = norm(x);
++    if n > 0, y = x / n; else, y = zeros(size(x)); end
+ end
+ 
+-function [body, front] = drawCar(x, y, angle, L, W)
+-
+-points = [-L/2 -W/2; L/2 -W/2; L/2 W/2; -L/2 W/2];
+-
+-R = [cosd(angle) -sind(angle); sind(angle) cosd(angle)];
+-
+-rotated = (R * points')';
+-
+-X = rotated(:, 1) + x; Y = rotated(:, 2) + y;
+-
+-body = patch(X, Y, 'b', 'EdgeColor', 'k', 'LineWidth', 2);
+-
+-frontX = x + cosd(angle) * L / 2; frontY = y + sind(angle) * L / 2;
+-
+-front = plot([x frontX], [y frontY], 'r', 'LineWidth', 3);
++function x_filtered = bandpassFilter(x, Fs)
++    try
++        x_filtered = bandpass(x, [300 3400], Fs);
++    catch
++        [b, a] = butter(2, [300 3400] / (Fs/2), 'bandpass');
++        x_filtered = filtfilt(b, a, x);
++    end
++end
+ 
+-end 
+\ No newline at end of file
++function [body, front] = drawCar(x, y, angle, carLength, carWidth)
++    points = [-carLength/2, -carWidth/2; ...
++               carLength/2, -carWidth/2; ...
++               carLength/2,  carWidth/2; ...
++              -carLength/2,  carWidth/2];
++    rotation = [cosd(angle), -sind(angle); sind(angle), cosd(angle)];
++    rotated = (rotation * points')';
++    body = patch(rotated(:,1) + x, rotated(:,2) + y, 'b', ...
++        'EdgeColor', 'k', 'LineWidth', 2);
++
++    frontX = x + cosd(angle) * carLength / 2;
++    frontY = y + sind(angle) * carLength / 2;
++    front = plot([x, frontX], [y, frontY], 'r', 'LineWidth', 3);
++end
+\ No newline at end of file
+commit d7a4480 | 2026-09-18 | thay doi thanh dieu khien xe
+
+diff --git a/code/speechrecognition.m b/code/speechrecognition.m
+index 8ceb3e6..38237e3 100644
+--- a/code/speechrecognition.m
++++ b/code/speechrecognition.m
+@@ -1,158 +1,244 @@
+-function speechrecognition(filename)
+-% Speech Recognition Using Cross-Correlation (Envelope + ZCR)
+-% T├¡ch hß╗úp ZCR Contour ─æß╗â ph├ón biß╗çt "Four" v├á "Five"
+ 
+-if nargin < 1 || isempty(filename)
+-    error('C├ích d├╣ng: speechrecognition(''test.wav'')');
+-end
+-
+-    baseDir = fileparts(mfilename('fullpath'));
+-    if ~isfile(filename)
+-        filename = fullfile(baseDir, filename);
+-    end
+-
+-targetFs = 8000;          
+-minThreshold = 0.35; % C├│ thß╗â cß║ºn hß║í nhß║╣ ng╞░ß╗íng do t├¡nh ─æiß╗âm tß╗òng hß╗úp
+-
+-% 1. ─Éß╗ìc v├á tiß╗ün xß╗¡ l├╜ file test
+-[x, Fs] = audioread(filename);
+-x = x(:,1); 
+-if Fs ~= targetFs
+-    x = resample(x, targetFs, Fs);
+-    Fs = targetFs;
+-end
+-
+-x = bandpassFilter(x, Fs);               
+-x = removeSilenceAutocorr(x, Fs);        
+-
+-% [Mß╗ÜI CHß╗êNH Sß╗¼A] Tr├¡ch xuß║Ñt 2 ─æß║╖c tr╞░ng chß║íy dß╗ìc theo thß╗¥i gian
+-x_env = normalizeSignal(abs(hilbert(x)));      % ─Éß║╖c tr╞░ng 1: Bi├¬n ─æß╗Ö (─Éß╗Ö to)
+-x_zcr = normalizeSignal(getZCRContour(x, Fs)); % ─Éß║╖c tr╞░ng 2: ZCR (M├áu sß║»c/Tß║ºn sß╗æ)
++clc; clear; close all;
+ 
+-templateNames = {'tien.wav','lui.wav','trai.wav','phai.wav','dung.wav'};
++%% =========================================================
++targetFs = 8000;
++baseDir = fileparts(mfilename('fullpath'));
++templateNames = {'tien.wav', 'lui.wav', 'trai.wav', 'phai.wav', 'dung.wav'};
+ templateFiles = fullfile(baseDir, templateNames);
++commands = {'TIEN', 'LUI', 'TRAI', 'PHAI', 'DUNG'};
+ n = numel(templateFiles);
+-peaks = zeros(1, n);
+ 
++% Khß╗ƒi tß║ío mß║úng l╞░u ─æß║╖c tr╞░ng
++env_templates = cell(1, n);
++zcr_templates = cell(1, n);
++
++fprintf('─Éang nß║íp file mß║½u...\n');
+ for k = 1:n
+     [y, Fs_y] = audioread(templateFiles{k});
+     y = y(:,1);
+-    
+-    if Fs_y ~= targetFs
+-        y = resample(y, targetFs, Fs_y);
+-    end
++    if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
+     
+     y = bandpassFilter(y, targetFs);
+-    y = removeSilenceAutocorr(y, targetFs);
+-    
+-    % [Mß╗ÜI CHß╗êNH Sß╗¼A] Tr├¡ch xuß║Ñt 2 ─æß║╖c tr╞░ng cho file mß║½u
+-    y_env = normalizeSignal(abs(hilbert(y)));
+-    y_zcr = normalizeSignal(getZCRContour(y, targetFs));
+-    
+-    % 2. T├¡nh T╞░╞íng quan ch├⌐o ri├¬ng biß╗çt cho tß╗½ng ─æß║╖c tr╞░ng
+-    [corr_env, ~] = xcorr(x_env, y_env, 'none');
+-    [corr_zcr, ~] = xcorr(x_zcr, y_zcr, 'none');
+-    
+-    peak_env = max(abs(corr_env));
+-    peak_zcr = max(abs(corr_zcr));
+-    
+-    % [TRß╗îNG T├éM] Tß╗òng hß╗úp ─æiß╗âm vß╗¢i trß╗ìng sß╗æ
+-    % ╞»u ti├¬n 60% cho h├¼nh d├íng ├óm l╞░ß╗úng, 40% cho h├¼nh d├íng tß║ºn sß╗æ (ZCR)
+-    % Bß║ín c├│ thß╗â tinh chß╗ënh tß╗╖ lß╗ç n├áy (v├¡ dß╗Ñ 0.7 - 0.3) nß║┐u muß╗æn
+-    weight_env = 0.3; 
+-    weight_zcr = 0.7;
++    y = removeSilenceAutocorr(y, targetFs); % Sß╗¡ dß╗Ñng Autocorrelation cß║»t khoß║úng lß║╖ng
+     
+-    final_score = (weight_env * peak_env) + (weight_zcr * peak_zcr);
+-    peaks(k) = final_score;
++    % Tr├¡ch xuß║Ñt sß║╡n v├á l╞░u lß║íi
++    env_templates{k} = normalizeSignal(abs(hilbert(y)));
++    zcr_templates{k} = normalizeSignal(getZCRContour(y, targetFs));
+ end
++fprintf('Ho├án tß║Ñt nß║íp mß║½u!\n');
+ 
+-% 4. Xuß║Ñt kß║┐t quß║ú nhß║¡n dß║íng
+-[maxPeak, idx] = max(peaks);
+-fprintf('\n=========================================\n');
+-if maxPeak >= minThreshold
+-    fprintf('Kß║╛T QUß║ó NHß║¼N Dß║áNG: "%s" (─Éiß╗âm tß╗òng hß╗úp: %.3f)\n', ...
+-        templateFiles{idx}, maxPeak);
+-    
+-    [y_match, Fs_m] = audioread(templateFiles{idx});
+-    soundsc(y_match(:,1), Fs_m);
+-else
+-    fprintf('Kß║╛T QUß║ó: KH├öNG NHß║¼N Dß║áNG ─É╞»ß╗óC (─Éß╗ënh %.3f < Ng╞░ß╗íng %.2f)\n', ...
+-        maxPeak, minThreshold);
+-end
+-fprintf('=========================================\n');
+-end
++%% =========================================================
+ 
+-% =========================================================================
+-% C├üC H├ÇM PHß╗ñ TRß╗ó (Giß╗» nguy├¬n c├íc h├ám c┼⌐ v├á th├¬m h├ám mß╗¢i)
+-% =========================================================================
++% 2. KHß╗₧I Tß║áO Bß║óN ─Éß╗Æ M├ö PHß╗ÄNG XE
+ 
+-% [Mß╗ÜI TH├èM] H├ÇM PHß╗ñ: Tr├¡ch xuß║Ñt ─æ╞░ß╗¥ng bao ZCR li├¬n tß╗Ñc
+-function zcr_contour = getZCRContour(x, Fs)
+-    winLen = round(Fs * 0.02); % Cß╗¡a sß╗ò tr╞░ß╗út 20ms
+-    % ─Éß║┐m sß╗▒ thay ─æß╗òi dß║Ñu (zero-crossings)
+-    crossings = abs(diff(x > 0)); 
+-    crossings = [crossings; 0]; % B├╣ lß║íi 1 mß║½u bß╗ï mß║Ñt do h├ám diff
+-    
+-    % D├╣ng trung b├¼nh tr╞░ß╗út (moving average) ─æß╗â l├ám m╞░ß╗út th├ánh mß╗Öt ─æ╞░ß╗¥ng bao
+-    zcr_contour = movmean(crossings, winLen);
+-end
++% ==========================================================
+ 
+-% --- H├ÇM PHß╗ñ: VAD Cß║«T KHOß║óNG Lß║╢NG (Giß╗» nguy├¬n h├ám ─æ├ú n├óng cß║Ñp ZCR tr╞░ß╗¢c ─æ├│) ---
+-function x_clean = removeSilenceAutocorr(x, Fs)
+-    frameLen = max(1, round(Fs * 0.02)); 
+-    hopLen = round(frameLen / 2);        
+-    numFrames = floor((length(x) - frameLen) / hopLen) + 1;
+-    
+-    if numFrames < 1, x_clean = x; return; end
+-    
+-    energy = zeros(1, numFrames);
+-    autocorrPeak = zeros(1, numFrames);
+-    zcr = zeros(1, numFrames); 
++figure('Name', 'MO PHONG XE GIONG NOI', 'Color', 'w');
++
++axis([0 100 0 100]); axis equal; grid on; hold on;
++
++xlabel('X'); ylabel('Y'); title('XE DIEU KHIEN BANG GIONG NOI');
++
++carX = 50; carY = 50; angle = 90;
++
++carLength = 10; carWidth = 6;
++
++speed = 5; turnAngle = 25;
++
++[carBody, carFront] = drawCar(carX, carY, angle, carLength, carWidth);
++
++%% =========================================================
++
++% 3. V├ÆNG Lß║¼P NHß║¼N Dß║áNG & ─ÉIß╗ÇU KHIß╗éN
++
++minThreshold = 0.35; 
++
++while true % (Hoß║╖c while ishandle(carBody))
++    fprintf('\n>>> ─Éang nghe... (N├│i lß╗çnh cß╗ºa bß║ín)\n');
++    
++    % --- THU ├éM Tß╗¬ MICRO ---
++    recorder = audiorecorder(targetFs, 16, 1);
++    recordblocking(recorder, 2); % Thu 2 gi├óy
++    x = getaudiodata(recorder);
++    x = x(:,1);
++    
++    % --- TIß╗ÇN Xß╗¼ L├¥ T├ìN HIß╗åU THU ─É╞»ß╗óC ---
++    x = bandpassFilter(x, targetFs);
++    x = removeSilenceAutocorr(x, targetFs);
++    
++    % Nß║┐u t├¡n hiß╗çu qu├í ngß║»n (chß╗ë c├│ tiß║┐ng ß╗ôn), bß╗Å qua
++    if length(x) < targetFs * 0.1
++        disp('Ch╞░a nghe r├╡!'); continue;
++    end
+     
+-    minLag = round(Fs / 500); maxLag = round(Fs / 80);  
++    % --- TR├ìCH XUß║ñT ─Éß║╢C TR╞»NG T├ìN HIß╗åU THß╗¼ ---
++    x_env = normalizeSignal(abs(hilbert(x)));
++    x_zcr = normalizeSignal(getZCRContour(x, targetFs));
+     
+-    for i = 1:numFrames
+-        startSample = (i-1)*hopLen + 1;
+-        frame = x(startSample : startSample + frameLen - 1);
+-        energy(i) = sum(frame.^2);
++    % --- SO S├üNH (CROSS-CORRELATION) ---
++    peaks = zeros(1, n);
++    for k = 1:n
++        [corr_env, ~] = xcorr(x_env, env_templates{k}, 'none');
++        [corr_zcr, ~] = xcorr(x_zcr, zcr_templates{k}, 'none');
+         
+-        [r, lags] = xcorr(frame, 'coeff');
+-        zeroLagIdx = find(lags == 0);
+-        searchWin = r(zeroLagIdx + minLag : zeroLagIdx + maxLag);
+-        if ~isempty(searchWin), autocorrPeak(i) = max(searchWin); end
++        peak_env = max(abs(corr_env));
++        peak_zcr = max(abs(corr_zcr));
+         
+-        zcr(i) = sum(abs(diff(frame > 0))) / (frameLen - 1);
++        % Tinh chß╗ënh trß╗ìng sß╗æ (N├¬n test thß╗¡ 0.5 - 0.5 cho tiß║┐ng Viß╗çt)
++        peaks(k) = (0.5 * peak_env) + (0.5 * peak_zcr); 
+     end
+     
+-    maxE = max(energy);
+-    if maxE == 0, x_clean = x; return; end
+-    
+-    isVoiced = (autocorrPeak > 0.22) & (energy > 0.005 * maxE);
+-    isUnvoiced = (energy > 0.002 * maxE) & (zcr > 0.25);
+-    activeFrames = find(isVoiced | isUnvoiced);
++    % --- XUß║ñT Kß║╛T QUß║ó & ─ÉIß╗ÇU KHIß╗éN ---
++    [maxPeak, idx] = max(peaks);
+     
+-    if ~isempty(activeFrames)
+-        padSamples = round(Fs * 0.15); 
+-        startSample = (activeFrames(1)-1)*hopLen + 1;
+-        endSample = (activeFrames(end)-1)*hopLen + frameLen;
+-        startIdx = max(1, startSample - padSamples);
+-        endIdx = min(length(x), endSample + padSamples);
+-        x_clean = x(startIdx:endIdx);
+-    else
+-        x_clean = x;
++    if maxPeak >= minThreshold
++        command = commands{idx};
++        fprintf('>>> Lß╗çnh: %s (Score: %.2f)\n', command, maxPeak);
++% --- ─ÉIß╗ÇU KHIß╗éN XE ---
++
++switch command
++
++case 'TIEN'
++
++carX = carX + speed * cosd(angle); carY = carY + speed * sind(angle);
++
++case 'LUI'
++
++carX = carX - speed * cosd(angle); carY = carY - speed * sind(angle);
++
++case 'TRAI'
++
++angle = angle + turnAngle;
++
++case 'PHAI'
++
++angle = angle - turnAngle;
++
++case 'DUNG'
++
++% Dß╗½ng xe
++
++case 'TIEN_TRAI'
++
++angle = angle + turnAngle; carX = carX + speed * cosd(angle); carY = carY + speed * sind(angle);
++
++case 'TIEN_PHAI'
++
++angle = angle - turnAngle; carX = carX + speed * cosd(angle); carY = carY + speed * sind(angle);
++
++case 'LUI_TRAI'
++
++angle = angle + turnAngle; carX = carX - speed * cosd(angle); carY = carY - speed * sind(angle);
++
++case 'LUI_PHAI'
++
++angle = angle - turnAngle; carX = carX - speed * cosd(angle); carY = carY - speed * sind(angle);
++
++case 'QUAY_TRAI'
++
++angle = angle + 90;
++
++case 'QUAY_PHAI'
++
++angle = angle - 90;
++
++end
++
++
++% Giß╗¢i hß║ín xe trong bi├¬n ─æß╗Ö 0-100
++
++carX = max(8, min(92, carX)); carY = max(8, min(92, carY));
++
++
++% Cß║¡p nhß║¡t ─æß╗ô hß╗ìa xe
++
++if ishandle(carBody), delete(carBody); end
++
++if ishandle(carFront), delete(carFront); end
++
++[carBody, carFront] = drawCar(carX, carY, angle, carLength, carWidth);
++
++
++title(sprintf('─Éang chß║íy: %s | X = %.1f | Y = %.1f | H╞░ß╗¢ng = %.0f deg', command, carX, carY, angle));
++
++drawnow;
++else
++        fprintf('>>> Kh├┤ng r├╡ lß╗çnh (Score: %.2f < %.2f)\n', maxPeak, minThreshold);
+     end
++
+ end
+ 
+-function y = normalizeSignal(x)
+-    n = norm(x);
+-    if n > 0, y = x / n; else, y = x; end
++%% =========================================================
++
++% C├üC H├ÇM Xß╗¼ L├¥ T├ìN HIß╗åU & ─Éß╗Æ Hß╗îA
++
++% ==========================================================
++
++function cleanAudio = processAudio(audio, Fs)
++
++if size(audio, 2) > 1, audio = mean(audio, 2); end
++
++[b, a] = butter(4, [300 3800] / (Fs/2), 'bandpass');
++
++audio = filter(b, a, audio);
++
++
++maxVal = max(abs(audio));
++
++if maxVal > 0, audio = audio / maxVal; end
++
++
++noiseFloor = mean(audio(1:min(1600, floor(length(audio)*0.1))).^2);
++
++energy = audio.^2;
++
++speechIdx = find(energy > max(noiseFloor * 4, 0.003));
++
++
++if ~isempty(speechIdx)
++
++startIdx = max(1, speechIdx(1) - 600);
++
++endIdx = min(length(audio), speechIdx(end) + 600);
++
++cleanAudio = audio(startIdx:endIdx);
++
++else
++
++cleanAudio = audio;
++
+ end
+ 
+-function x_filtered = bandpassFilter(x, Fs)
+-    try
+-        x_filtered = bandpass(x, [300 3400], Fs);
+-    catch
+-        [b, a] = butter(2, [300 3400] / (Fs/2), 'bandpass');
+-        x_filtered = filtfilt(b, a, x);
+-    end
+-end
+\ No newline at end of file
++
++maxClean = max(abs(cleanAudio));
++
++if maxClean > 0, cleanAudio = cleanAudio / maxClean; end
++
++end
++
++function features = extractRobustMFCC(audio, Fs)
++
++coeffs = mfcc(audio, Fs);
++
++features = (coeffs - mean(coeffs, 1)) ./ (std(coeffs, 0, 1) + eps);
++
++end
++
++function [body, front] = drawCar(x, y, angle, L, W)
++
++points = [-L/2 -W/2; L/2 -W/2; L/2 W/2; -L/2 W/2];
++
++R = [cosd(angle) -sind(angle); sind(angle) cosd(angle)];
++
++rotated = (R * points')';
++
++X = rotated(:, 1) + x; Y = rotated(:, 2) + y;
++
++body = patch(X, Y, 'b', 'EdgeColor', 'k', 'LineWidth', 2);
++
++frontX = x + cosd(angle) * L / 2; frontY = y + sind(angle) * L / 2;
++
++front = plot([x frontX], [y frontY], 'r', 'LineWidth', 3);
++
++end 
+\ No newline at end of file
+commit 940d807 | 2026-09-18 | Add speech recognition MATLAB project
+
+diff --git a/code/speechrecognition.m b/code/speechrecognition.m
+new file mode 100644
+index 0000000..8ceb3e6
+--- /dev/null
++++ b/code/speechrecognition.m
+@@ -0,0 +1,158 @@
++function speechrecognition(filename)
++% Speech Recognition Using Cross-Correlation (Envelope + ZCR)
++% T├¡ch hß╗úp ZCR Contour ─æß╗â ph├ón biß╗çt "Four" v├á "Five"
++
++if nargin < 1 || isempty(filename)
++    error('C├ích d├╣ng: speechrecognition(''test.wav'')');
++end
++
++    baseDir = fileparts(mfilename('fullpath'));
++    if ~isfile(filename)
++        filename = fullfile(baseDir, filename);
++    end
++
++targetFs = 8000;          
++minThreshold = 0.35; % C├│ thß╗â cß║ºn hß║í nhß║╣ ng╞░ß╗íng do t├¡nh ─æiß╗âm tß╗òng hß╗úp
++
++% 1. ─Éß╗ìc v├á tiß╗ün xß╗¡ l├╜ file test
++[x, Fs] = audioread(filename);
++x = x(:,1); 
++if Fs ~= targetFs
++    x = resample(x, targetFs, Fs);
++    Fs = targetFs;
++end
++
++x = bandpassFilter(x, Fs);               
++x = removeSilenceAutocorr(x, Fs);        
++
++% [Mß╗ÜI CHß╗êNH Sß╗¼A] Tr├¡ch xuß║Ñt 2 ─æß║╖c tr╞░ng chß║íy dß╗ìc theo thß╗¥i gian
++x_env = normalizeSignal(abs(hilbert(x)));      % ─Éß║╖c tr╞░ng 1: Bi├¬n ─æß╗Ö (─Éß╗Ö to)
++x_zcr = normalizeSignal(getZCRContour(x, Fs)); % ─Éß║╖c tr╞░ng 2: ZCR (M├áu sß║»c/Tß║ºn sß╗æ)
++
++templateNames = {'tien.wav','lui.wav','trai.wav','phai.wav','dung.wav'};
++templateFiles = fullfile(baseDir, templateNames);
++n = numel(templateFiles);
++peaks = zeros(1, n);
++
++for k = 1:n
++    [y, Fs_y] = audioread(templateFiles{k});
++    y = y(:,1);
++    
++    if Fs_y ~= targetFs
++        y = resample(y, targetFs, Fs_y);
++    end
++    
++    y = bandpassFilter(y, targetFs);
++    y = removeSilenceAutocorr(y, targetFs);
++    
++    % [Mß╗ÜI CHß╗êNH Sß╗¼A] Tr├¡ch xuß║Ñt 2 ─æß║╖c tr╞░ng cho file mß║½u
++    y_env = normalizeSignal(abs(hilbert(y)));
++    y_zcr = normalizeSignal(getZCRContour(y, targetFs));
++    
++    % 2. T├¡nh T╞░╞íng quan ch├⌐o ri├¬ng biß╗çt cho tß╗½ng ─æß║╖c tr╞░ng
++    [corr_env, ~] = xcorr(x_env, y_env, 'none');
++    [corr_zcr, ~] = xcorr(x_zcr, y_zcr, 'none');
++    
++    peak_env = max(abs(corr_env));
++    peak_zcr = max(abs(corr_zcr));
++    
++    % [TRß╗îNG T├éM] Tß╗òng hß╗úp ─æiß╗âm vß╗¢i trß╗ìng sß╗æ
++    % ╞»u ti├¬n 60% cho h├¼nh d├íng ├óm l╞░ß╗úng, 40% cho h├¼nh d├íng tß║ºn sß╗æ (ZCR)
++    % Bß║ín c├│ thß╗â tinh chß╗ënh tß╗╖ lß╗ç n├áy (v├¡ dß╗Ñ 0.7 - 0.3) nß║┐u muß╗æn
++    weight_env = 0.3; 
++    weight_zcr = 0.7;
++    
++    final_score = (weight_env * peak_env) + (weight_zcr * peak_zcr);
++    peaks(k) = final_score;
++end
++
++% 4. Xuß║Ñt kß║┐t quß║ú nhß║¡n dß║íng
++[maxPeak, idx] = max(peaks);
++fprintf('\n=========================================\n');
++if maxPeak >= minThreshold
++    fprintf('Kß║╛T QUß║ó NHß║¼N Dß║áNG: "%s" (─Éiß╗âm tß╗òng hß╗úp: %.3f)\n', ...
++        templateFiles{idx}, maxPeak);
++    
++    [y_match, Fs_m] = audioread(templateFiles{idx});
++    soundsc(y_match(:,1), Fs_m);
++else
++    fprintf('Kß║╛T QUß║ó: KH├öNG NHß║¼N Dß║áNG ─É╞»ß╗óC (─Éß╗ënh %.3f < Ng╞░ß╗íng %.2f)\n', ...
++        maxPeak, minThreshold);
++end
++fprintf('=========================================\n');
++end
++
++% =========================================================================
++% C├üC H├ÇM PHß╗ñ TRß╗ó (Giß╗» nguy├¬n c├íc h├ám c┼⌐ v├á th├¬m h├ám mß╗¢i)
++% =========================================================================
++
++% [Mß╗ÜI TH├èM] H├ÇM PHß╗ñ: Tr├¡ch xuß║Ñt ─æ╞░ß╗¥ng bao ZCR li├¬n tß╗Ñc
++function zcr_contour = getZCRContour(x, Fs)
++    winLen = round(Fs * 0.02); % Cß╗¡a sß╗ò tr╞░ß╗út 20ms
++    % ─Éß║┐m sß╗▒ thay ─æß╗òi dß║Ñu (zero-crossings)
++    crossings = abs(diff(x > 0)); 
++    crossings = [crossings; 0]; % B├╣ lß║íi 1 mß║½u bß╗ï mß║Ñt do h├ám diff
++    
++    % D├╣ng trung b├¼nh tr╞░ß╗út (moving average) ─æß╗â l├ám m╞░ß╗út th├ánh mß╗Öt ─æ╞░ß╗¥ng bao
++    zcr_contour = movmean(crossings, winLen);
++end
++
++% --- H├ÇM PHß╗ñ: VAD Cß║«T KHOß║óNG Lß║╢NG (Giß╗» nguy├¬n h├ám ─æ├ú n├óng cß║Ñp ZCR tr╞░ß╗¢c ─æ├│) ---
++function x_clean = removeSilenceAutocorr(x, Fs)
++    frameLen = max(1, round(Fs * 0.02)); 
++    hopLen = round(frameLen / 2);        
++    numFrames = floor((length(x) - frameLen) / hopLen) + 1;
++    
++    if numFrames < 1, x_clean = x; return; end
++    
++    energy = zeros(1, numFrames);
++    autocorrPeak = zeros(1, numFrames);
++    zcr = zeros(1, numFrames); 
++    
++    minLag = round(Fs / 500); maxLag = round(Fs / 80);  
++    
++    for i = 1:numFrames
++        startSample = (i-1)*hopLen + 1;
++        frame = x(startSample : startSample + frameLen - 1);
++        energy(i) = sum(frame.^2);
++        
++        [r, lags] = xcorr(frame, 'coeff');
++        zeroLagIdx = find(lags == 0);
++        searchWin = r(zeroLagIdx + minLag : zeroLagIdx + maxLag);
++        if ~isempty(searchWin), autocorrPeak(i) = max(searchWin); end
++        
++        zcr(i) = sum(abs(diff(frame > 0))) / (frameLen - 1);
++    end
++    
++    maxE = max(energy);
++    if maxE == 0, x_clean = x; return; end
++    
++    isVoiced = (autocorrPeak > 0.22) & (energy > 0.005 * maxE);
++    isUnvoiced = (energy > 0.002 * maxE) & (zcr > 0.25);
++    activeFrames = find(isVoiced | isUnvoiced);
++    
++    if ~isempty(activeFrames)
++        padSamples = round(Fs * 0.15); 
++        startSample = (activeFrames(1)-1)*hopLen + 1;
++        endSample = (activeFrames(end)-1)*hopLen + frameLen;
++        startIdx = max(1, startSample - padSamples);
++        endIdx = min(length(x), endSample + padSamples);
++        x_clean = x(startIdx:endIdx);
++    else
++        x_clean = x;
++    end
++end
++
++function y = normalizeSignal(x)
++    n = norm(x);
++    if n > 0, y = x / n; else, y = x; end
++end
++
++function x_filtered = bandpassFilter(x, Fs)
++    try
++        x_filtered = bandpass(x, [300 3400], Fs);
++    catch
++        [b, a] = butter(2, [300 3400] / (Fs/2), 'bandpass');
++        x_filtered = filtfilt(b, a, x);
++    end
++end
+\ No newline at end of file

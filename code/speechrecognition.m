@@ -293,7 +293,7 @@ end
 
 % --- HÀM PHỤ 1: TRÍCH XUẤT MA TRẬN PHỔ 2D ---
 function S_norm = computeSpectrogram2D(x, Fs)
-    winLen = round(Fs * 0.030);   % Cửa sổ 30 ms
+    winLen = round(Fs * 0.03);   % Cửa sổ 30 ms
     overlap = round(winLen * 0.7); % Độ chồng lấp 70%
     nfft = 512;                   % Số điểm FFT
 
