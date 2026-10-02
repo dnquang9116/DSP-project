@@ -16,11 +16,11 @@ DSP-project/
 `-- code/
     |-- speechrecognition.m   % Giao diện xe và lõi nhận dạng
     |-- recordVoice.m         % Module thu âm microphone
-    |-- tien.wav              % Template lệnh TIẾN
-    |-- lui.wav               % Template lệnh LÙI
-    |-- trai.wav              % Template lệnh TRÁI
-    |-- phai.wav              % Template lệnh PHẢI
-    `-- dung.wav              % Template lệnh DỪNG
+    |-- tien*.wav/mp3/m4a     % Các template lệnh TIẾN
+    |-- lui*.wav/mp3/m4a      % Các template lệnh LÙI
+    |-- trai*.wav/mp3/m4a     % Các template lệnh TRÁI
+    |-- phai*.wav/mp3/m4a     % Các template lệnh PHẢI
+    `-- dung*.wav/mp3/m4a     % Các template lệnh DỪNG
 ```
 
 Các file WAV như `test.wav`, `test2.wav` và `test3.wav` là dữ liệu kiểm thử tham khảo. Chương trình chính hiện nhận tín hiệu trực tiếp từ microphone; các file `tien.wav` đến `dung.wav` chỉ được dùng làm mẫu so sánh.
@@ -77,7 +77,7 @@ Tạo spectrogram: cửa sổ 30 ms, overlap 70%, FFT 512 điểm
     |
 Chuyển phổ sang dB và chuẩn hóa zero-mean/unit-variance
     |
-2D normalized cross-correlation với 5 template
+2D normalized cross-correlation với nhiều template cho từng lệnh
     |
 Chọn điểm tương quan lớn nhất
     |
@@ -86,24 +86,21 @@ Chọn điểm tương quan lớn nhất
 
 Ngưỡng nhận dạng hiện tại là `0.45` trong hàm `speechDSPCore2D`. Nếu điểm cao nhất thấp hơn ngưỡng, hệ thống trả về `UNKNOWN` và không điều khiển xe.
 
-## 5. Thêm hoặc thay template
+## 5. Thêm template cho lệnh
 
-Để thay giọng mẫu cho một lệnh:
+Mỗi lệnh có thể có nhiều mẫu, chẳng hạn giọng miền Bắc và miền Nam. Đặt các file trong cùng thư mục `code`; chương trình nhận diện lệnh theo tiền tố tên file, không phân biệt chữ hoa/thường và có hỗ trợ tên có dấu:
 
-1. Thu một file WAV mono, rõ tiếng và ít tạp âm.
-2. Đặt file vào thư mục `code`.
-3. Giữ đúng tên tương ứng: `tien.wav`, `lui.wav`, `trai.wav`, `phai.wav` hoặc `dung.wav`.
-4. Chạy lại `speechrecognition`.
+| Lệnh | Tiền tố tên file |
+|---|---|
+| TIẾN | `tien` hoặc `tiến` |
+| LÙI | `lui` hoặc `lùi` |
+| TRÁI | `trai` hoặc `trái` |
+| PHẢI | `phai` hoặc `phải` |
+| DỪNG | `dung` hoặc `dừng` |
 
-Khi thêm một lệnh mới, cần cập nhật đồng thời các mảng trong `speechDSPCore2D`:
+Các định dạng được hỗ trợ là WAV, MP3 và M4A. Ví dụ, `tien.wav`, `tien_mien_nam.wav` và `Tiến_1.m4a` đều được gom làm mẫu cho lệnh TIẾN. Sau khi thêm file, khởi động lại `speechrecognition` để nạp lại mẫu. Với mỗi lệnh, hệ thống lấy điểm tương quan cao nhất trong các mẫu của lệnh đó rồi so sánh giữa các lệnh.
 
-```matlab
-templateNames = {...};
-templateFiles = fullfile(baseDir, templateNames);
-cmdNames = {...};
-```
-
-Sau đó thêm nhánh xử lý lệnh mới trong hàm `executeCommand`.
+Thu mẫu rõ tiếng, hạn chế tạp âm và chỉ nói một lệnh mỗi file. Tên file cần bắt đầu bằng một trong các tiền tố ở bảng; phần sau tiền tố có thể dùng để ghi giọng hoặc số thứ tự.
 
 ## 6. Kiểm thử
 
@@ -130,15 +127,7 @@ which speechrecognition
 
 ### Không tìm thấy file mẫu
 
-Kiểm tra năm file sau có nằm cùng thư mục với `speechrecognition.m` không:
-
-```text
-tien.wav
-lui.wav
-trai.wav
-phai.wav
-dung.wav
-```
+Kiểm tra mỗi lệnh có ít nhất một file WAV, MP3 hoặc M4A hợp lệ trong cùng thư mục với `speechrecognition.m` không. Tên file cần bắt đầu bằng tiền tố lệnh như bảng ở mục **Thêm template cho lệnh**.
 
 ### Không ghi âm được
 

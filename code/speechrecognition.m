@@ -56,7 +56,7 @@ function speechrecognition()
     uicontrol('Style', 'pushbutton', 'String', 'PHẢI', 'Position', [815, 220, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
     uicontrol('Style', 'pushbutton', 'String', 'DỪNG', 'Position', [740, 220, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
 
-    % [SỬA 3] Kiểm tra toolbox và nạp + tiền xử lý 5 template MỘT LẦN khi khởi động
+    % Kiểm tra toolbox và nạp + tiền xử lý các template MỘT LẦN khi khởi động
     missingFcn = {};
     for fn = {'spectrogram', 'resample', 'normxcorr2'}
         if isempty(which(fn{1})), missingFcn{end+1} = fn{1}; end %#ok<AGROW>
@@ -131,7 +131,7 @@ function speechrecognition()
 
         % [SỬA 3] Không có template nào thì không cần ghi âm
         if all(cellfun(@isempty, templates.S))
-            set(hStatus, 'String', {'Không có file mẫu hợp lệ!', 'Kiểm tra tien/lui/trai/phai/dung.wav'});
+            set(hStatus, 'String', {'Không có file mẫu hợp lệ!', 'Kiểm tra file mẫu trong thư mục code'});
             return;
         end
 
@@ -199,34 +199,60 @@ end
 % NẠP VÀ TIỀN XỬ LÝ TEMPLATE (CHỈ CHẠY MỘT LẦN)
 % =========================================================================
 function tpl = loadTemplates(baseDir, targetFs)
-    templateNames = {'tien.wav', 'lui.wav', 'trai.wav', 'phai.wav', 'dung.wav'};
     tpl.cmdNames = {'tien', 'lui', 'trai', 'phai', 'dung'};
+    templateAliases = {{'tien', 'tiến'}, {'lui', 'lùi'}, ...
+                       {'trai', 'trái'}, {'phai', 'phải'}, {'dung', 'dừng'}};
+    supportedExt = {'.wav', '.mp3', '.m4a'};
     tpl.Fs = targetFs;
-    tpl.S = cell(1, numel(templateNames));   % phổ đã chuẩn hóa; rỗng nếu thiếu
+    tpl.S = cell(1, numel(tpl.cmdNames));   % Mỗi lệnh chứa phổ của nhiều mẫu
     tpl.missing = {};
     minLen = round(targetFs * 0.12);
+    files = dir(baseDir);
 
-    for k = 1:numel(templateNames)
-        f = fullfile(baseDir, templateNames{k});
-        if ~exist(f, 'file')
-            tpl.missing{end+1} = templateNames{k}; %#ok<AGROW>
+    for k = 1:numel(tpl.cmdNames)
+        tpl.S{k} = {};
+        matchedFiles = {};
+        for fileIdx = 1:numel(files)
+            if files(fileIdx).isdir, continue; end
+            [~, fileName, fileExt] = fileparts(files(fileIdx).name);
+            if ~any(strcmpi(fileExt, supportedExt)), continue; end
+            for aliasIdx = 1:numel(templateAliases{k})
+                alias = templateAliases{k}{aliasIdx};
+                if startsWith(lower(fileName), lower(alias))
+                    matchedFiles{end+1} = files(fileIdx).name; %#ok<AGROW>
+                    break;
+                end
+            end
+        end
+
+        if isempty(matchedFiles)
+            tpl.missing{end+1} = [tpl.cmdNames{k} ' (không có mẫu)']; %#ok<AGROW>
             continue;
         end
-        try
-            [y, Fs_y] = audioread(f);
-        catch
-            tpl.missing{end+1} = [templateNames{k} ' (lỗi đọc)']; %#ok<AGROW>
-            continue;
+
+        for fileIdx = 1:numel(matchedFiles)
+            fileName = matchedFiles{fileIdx};
+            f = fullfile(baseDir, fileName);
+            try
+                [y, Fs_y] = audioread(f);
+            catch
+                tpl.missing{end+1} = [fileName ' (lỗi đọc)']; %#ok<AGROW>
+                continue;
+            end
+            if size(y, 2) > 1, y = mean(y, 2); end
+            if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
+            y = bandpassFilter(y, targetFs);
+            y = removeSilenceAutocorr(y, targetFs);
+            if length(y) < minLen
+                tpl.missing{end+1} = [fileName ' (quá ngắn)']; %#ok<AGROW>
+                continue;
+            end
+            tpl.S{k}{end+1} = computeSpectrogram2D(y, targetFs); %#ok<AGROW>
         end
-        if size(y, 2) > 1, y = mean(y, 2); end     % [SỬA 3] thống nhất với file test
-        if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
-        y = bandpassFilter(y, targetFs);
-        y = removeSilenceAutocorr(y, targetFs);
-        if length(y) < minLen
-            tpl.missing{end+1} = [templateNames{k} ' (quá ngắn)']; %#ok<AGROW>
-            continue;
+
+        if isempty(tpl.S{k}) && ~any(startsWith(tpl.missing, tpl.cmdNames{k}))
+            tpl.missing{end+1} = [tpl.cmdNames{k} ' (không có mẫu hợp lệ)']; %#ok<AGROW>
         end
-        tpl.S{k} = computeSpectrogram2D(y, targetFs);
     end
 end
 
@@ -259,20 +285,21 @@ function cmd = speechDSPCore2D(audioInput, inputFs, templates)
     peaks = zeros(1, numel(cmdNames));
 
     for k = 1:numel(cmdNames)
-        S_template = templates.S{k};        % [SỬA 3] dùng phổ đã tính sẵn
-        if isempty(S_template), continue; end
+        for templateIdx = 1:numel(templates.S{k})
+            S_template = templates.S{k}{templateIdx};
 
-        % Cái ngắn hơn (theo thời gian) làm template, cái dài hơn làm ảnh
-        if size(S_test, 2) < size(S_template, 2)
-            T = S_test;     A = S_template;
-        else
-            T = S_template; A = S_test;
+            % Cái ngắn hơn (theo thời gian) làm template, cái dài hơn làm ảnh
+            if size(S_test, 2) < size(S_template, 2)
+                T = S_test;     A = S_template;
+            else
+                T = S_template; A = S_test;
+            end
+            C2D = normxcorr2(T, A);
+            % Chỉ lấy vùng "valid": template nằm trọn trong ảnh
+            C2D = C2D(size(T,1):size(A,1), size(T,2):size(A,2));
+
+            peaks(k) = max(peaks(k), max(C2D(:)));
         end
-        C2D = normxcorr2(T, A);
-        % Chỉ lấy vùng "valid": template nằm trọn trong ảnh
-        C2D = C2D(size(T,1):size(A,1), size(T,2):size(A,2));
-
-        peaks(k) = max(C2D(:)); % Lưu lại đỉnh tương quan cực đại
     end
 
     % In điểm để chỉnh ngưỡng bằng dữ liệu thật
