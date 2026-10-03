@@ -193,10 +193,10 @@ function speechrecognition()
 
         stages = preprocessAudioStages(sampleAudio, sampleFs, targetFs);
         stageFig = figure('Name', ['Các giai đoạn xử lý - ' fileName], ...
-                          'NumberTitle', 'off', 'Position', [100, 100, 1100, 700], ...
+                          'NumberTitle', 'off', 'Position', [100, 100, 1200, 750], ...
                           'Color', 'w');
 
-        axRaw = subplot(2, 2, 1, 'Parent', stageFig);
+        axRaw = subplot(2, 3, 1, 'Parent', stageFig);
         time = (0:numel(stages.raw)-1) / targetFs;
         plot(axRaw, time, stages.raw);
         grid(axRaw, 'on');
@@ -204,15 +204,23 @@ function speechrecognition()
         ylabel(axRaw, 'Biên độ');
         title(axRaw, 'Tín hiệu thô (mono, 16 kHz)');
 
-        axFiltered = subplot(2, 2, 2, 'Parent', stageFig);
-        time = (0:numel(stages.filtered)-1) / targetFs;
-        plot(axFiltered, time, stages.filtered);
-        grid(axFiltered, 'on');
-        xlabel(axFiltered, 'Thời gian (s)');
-        ylabel(axFiltered, 'Biên độ');
-        title(axFiltered, 'Sau bộ lọc thông dải');
+        axBandpassed = subplot(2, 3, 2, 'Parent', stageFig);
+        time = (0:numel(stages.bandpassed)-1) / targetFs;
+        plot(axBandpassed, time, stages.bandpassed);
+        grid(axBandpassed, 'on');
+        xlabel(axBandpassed, 'Thời gian (s)');
+        ylabel(axBandpassed, 'Biên độ');
+        title(axBandpassed, 'Sau lọc thông dải');
 
-        axVad = subplot(2, 2, 3, 'Parent', stageFig);
+        axDenoised = subplot(2, 3, 3, 'Parent', stageFig);
+        time = (0:numel(stages.denoised)-1) / targetFs;
+        plot(axDenoised, time, stages.denoised);
+        grid(axDenoised, 'on');
+        xlabel(axDenoised, 'Thời gian (s)');
+        ylabel(axDenoised, 'Biên độ');
+        title(axDenoised, 'Sau khử nhiễu Gaussian');
+
+        axVad = subplot(2, 3, 4, 'Parent', stageFig);
         time = (0:numel(stages.vad)-1) / targetFs;
         plot(axVad, time, stages.vad);
         grid(axVad, 'on');
@@ -220,7 +228,7 @@ function speechrecognition()
         ylabel(axVad, 'Biên độ');
         title(axVad, 'Sau VAD (đã cắt khoảng lặng)');
 
-        axSpec = subplot(2, 2, 4, 'Parent', stageFig);
+        axSpec = subplot(2, 3, [5 6], 'Parent', stageFig);
         winLen = round(targetFs * 0.025);
         if numel(stages.vad) < winLen
             text(axSpec, 0.5, 0.5, 'Tín hiệu quá ngắn để vẽ spectrogram', ...
@@ -377,8 +385,9 @@ function stages = preprocessAudioStages(audioInput, inputFs, targetFs)
     if inputFs ~= targetFs, x = resample(x, targetFs, inputFs); end
 
     stages.raw = x;
-    stages.filtered = bandpassFilter(x, targetFs);
-    stages.vad = removeSilenceAutocorr(stages.filtered, targetFs);
+    stages.bandpassed = bandpassFilter(x, targetFs);
+    stages.denoised = reduceGaussianNoise(stages.bandpassed, targetFs);
+    stages.vad = removeSilenceAutocorr(stages.denoised, targetFs);
 end
 
 function valid = isValidSpectrogram(S)

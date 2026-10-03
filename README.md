@@ -68,11 +68,13 @@ Module `recordVoice.m` đảm nhiệm việc tạo `audiorecorder`, thu âm 2 gi
 ```text
 Microphone
     |
-recordVoice.m
+Ghi âm mono 16 kHz
     |
-Đưa về mono và resample về 8 kHz
+Đưa về mono và resample về 16 kHz
     |
-Bộ lọc thông dải 300-3400 Hz
+Bộ lọc thông dải 150-7700 Hz
+    |
+Khử nhiễu phổ (ước lượng nền từ 25% khung năng lượng thấp nhất)
     |
 VAD bằng năng lượng và autocorrelation
     |
@@ -87,7 +89,7 @@ Chọn điểm tương quan lớn nhất
 Điều khiển xe 2D
 ```
 
-Ngưỡng nhận dạng hiện tại là `0.45` trong hàm `speechDSPCore2D`. Nếu điểm cao nhất thấp hơn ngưỡng, hệ thống trả về `UNKNOWN` và không điều khiển xe.
+Ngưỡng nhận dạng hiện tại là `0.45` trong hàm `speechDSPCore2D`. Nếu điểm cao nhất thấp hơn ngưỡng, hệ thống trả về `UNKNOWN` và không điều khiển xe. Khử nhiễu phổ giảm nhiễu nền băng rộng như Gaussian; vì nhiễu này chồng lên dải giọng nói nên riêng bộ lọc thông dải không thể loại bỏ nó.
 
 ## 5. Thêm template cho lệnh
 
