@@ -57,28 +57,26 @@ Khi giao diện xuất hiện:
 2. Nói một lệnh trong khoảng 2 giây.
 3. Chờ hệ thống xử lý và cập nhật trạng thái xe.
 4. Bấm lại nút để thực hiện lệnh tiếp theo.
-5. Bấm **XEM CÁC GIAI ĐOẠN** để chọn một tệp âm thanh mẫu và xem tín hiệu thô, sau bộ lọc, sau VAD cùng spectrogram trong một cửa sổ riêng.
+5. Bấm **XEM CÁC GIAI ĐOẠN** để chọn một tệp âm thanh mẫu và xem tín hiệu thô, sau lọc thông dải, sau VAD cùng spectrogram trong một cửa sổ riêng.
 
 Nút xem giai đoạn hỗ trợ WAV, MP3 và M4A. Tín hiệu được chuyển về mono và 16 kHz trước khi vẽ; spectrogram hiển thị tín hiệu sau VAD.
 
-Module `recordVoice.m` đảm nhiệm việc tạo `audiorecorder`, thu âm 2 giây và trả về tín hiệu cùng tần số lấy mẫu 8 kHz.
+Giao diện chính thu âm 2 giây mono ở 16 kHz bằng `audiorecorder`. Nếu gọi `recordVoice.m` riêng, module này thu âm ở 8 kHz.
 
 ## 4. Luồng xử lý DSP
 
 ```text
 Microphone
     |
-Ghi âm mono 16 kHz
+Ghi âm mono 16 kHz bằng `audiorecorder`
     |
 Đưa về mono và resample về 16 kHz
     |
 Bộ lọc thông dải 150-7700 Hz
     |
-Khử nhiễu phổ (ước lượng nền từ 25% khung năng lượng thấp nhất)
-    |
 VAD bằng năng lượng và autocorrelation
     |
-Tạo spectrogram: cửa sổ 30 ms, overlap 70%, FFT 512 điểm
+Tạo spectrogram: cửa sổ 25 ms, overlap 70%, FFT 512 điểm
     |
 Chuyển phổ sang dB và chuẩn hóa zero-mean/unit-variance
     |
@@ -89,7 +87,7 @@ Chọn điểm tương quan lớn nhất
 Điều khiển xe 2D
 ```
 
-Ngưỡng nhận dạng hiện tại là `0.45` trong hàm `speechDSPCore2D`. Nếu điểm cao nhất thấp hơn ngưỡng, hệ thống trả về `UNKNOWN` và không điều khiển xe. Khử nhiễu phổ giảm nhiễu nền băng rộng như Gaussian; vì nhiễu này chồng lên dải giọng nói nên riêng bộ lọc thông dải không thể loại bỏ nó.
+Ngưỡng nhận dạng hiện tại là `0.45` trong hàm `speechDSPCore2D`. Nếu điểm cao nhất thấp hơn ngưỡng, hệ thống trả về `UNKNOWN` và không điều khiển xe.
 
 ## 5. Thêm template cho lệnh
 

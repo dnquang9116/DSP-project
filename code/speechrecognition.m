@@ -179,24 +179,19 @@ function speechrecognition()
             return;
         end
 
-        samplePath = fullfile(pathName, fileName);
         try
-            [sampleAudio, sampleFs] = audioread(samplePath);
+            [sampleAudio, sampleFs] = audioread(fullfile(pathName, fileName));
+            stages = preprocessAudioStages(sampleAudio, sampleFs, targetFs);
         catch ME
-            set(hStatus, 'String', {'Không đọc được tín hiệu mẫu:', ME.message});
-            return;
-        end
-        if isempty(sampleAudio)
-            set(hStatus, 'String', 'Tệp âm thanh mẫu không có dữ liệu.');
+            set(hStatus, 'String', {'Không xử lý được tín hiệu mẫu:', ME.message});
             return;
         end
 
-        stages = preprocessAudioStages(sampleAudio, sampleFs, targetFs);
         stageFig = figure('Name', ['Các giai đoạn xử lý - ' fileName], ...
-                          'NumberTitle', 'off', 'Position', [100, 100, 1200, 750], ...
+                          'NumberTitle', 'off', 'Position', [100, 100, 1100, 700], ...
                           'Color', 'w');
 
-        axRaw = subplot(2, 3, 1, 'Parent', stageFig);
+        axRaw = subplot(2, 2, 1, 'Parent', stageFig);
         time = (0:numel(stages.raw)-1) / targetFs;
         plot(axRaw, time, stages.raw);
         grid(axRaw, 'on');
@@ -204,23 +199,15 @@ function speechrecognition()
         ylabel(axRaw, 'Biên độ');
         title(axRaw, 'Tín hiệu thô (mono, 16 kHz)');
 
-        axBandpassed = subplot(2, 3, 2, 'Parent', stageFig);
-        time = (0:numel(stages.bandpassed)-1) / targetFs;
-        plot(axBandpassed, time, stages.bandpassed);
-        grid(axBandpassed, 'on');
-        xlabel(axBandpassed, 'Thời gian (s)');
-        ylabel(axBandpassed, 'Biên độ');
-        title(axBandpassed, 'Sau lọc thông dải');
+        axFiltered = subplot(2, 2, 2, 'Parent', stageFig);
+        time = (0:numel(stages.filtered)-1) / targetFs;
+        plot(axFiltered, time, stages.filtered);
+        grid(axFiltered, 'on');
+        xlabel(axFiltered, 'Thời gian (s)');
+        ylabel(axFiltered, 'Biên độ');
+        title(axFiltered, 'Sau bộ lọc thông dải');
 
-        axDenoised = subplot(2, 3, 3, 'Parent', stageFig);
-        time = (0:numel(stages.denoised)-1) / targetFs;
-        plot(axDenoised, time, stages.denoised);
-        grid(axDenoised, 'on');
-        xlabel(axDenoised, 'Thời gian (s)');
-        ylabel(axDenoised, 'Biên độ');
-        title(axDenoised, 'Sau khử nhiễu Gaussian');
-
-        axVad = subplot(2, 3, 4, 'Parent', stageFig);
+        axVad = subplot(2, 2, 3, 'Parent', stageFig);
         time = (0:numel(stages.vad)-1) / targetFs;
         plot(axVad, time, stages.vad);
         grid(axVad, 'on');
@@ -228,7 +215,7 @@ function speechrecognition()
         ylabel(axVad, 'Biên độ');
         title(axVad, 'Sau VAD (đã cắt khoảng lặng)');
 
-        axSpec = subplot(2, 3, [5 6], 'Parent', stageFig);
+        axSpec = subplot(2, 2, 4, 'Parent', stageFig);
         winLen = round(targetFs * 0.025);
         if numel(stages.vad) < winLen
             text(axSpec, 0.5, 0.5, 'Tín hiệu quá ngắn để vẽ spectrogram', ...
@@ -252,6 +239,16 @@ function speechrecognition()
 
         set(hStatus, 'String', {'Đang xem các giai đoạn xử lý:', fileName});
     end
+end
+
+function stages = preprocessAudioStages(audioInput, inputFs, targetFs)
+    x = audioInput;
+    if size(x, 2) > 1, x = mean(x, 2); end
+    if inputFs ~= targetFs, x = resample(x, targetFs, inputFs); end
+
+    stages.raw = x;
+    stages.filtered = bandpassFilter(x, targetFs);
+    stages.vad = removeSilenceAutocorr(stages.filtered, targetFs);
 end
 
 % =========================================================================
@@ -304,8 +301,10 @@ function tpl = loadTemplates(baseDir, targetFs)
             tpl.missing{end+1} = [templateNames{k} ' (lỗi đọc)']; %#ok<AGROW>
             continue;
         end
-        stages = preprocessAudioStages(y, Fs_y, targetFs);
-        y = stages.vad;
+        if size(y, 2) > 1, y = mean(y, 2); end     % [SỬA 3] thống nhất với file test
+        if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
+        y = bandpassFilter(y, targetFs);
+        y = removeSilenceAutocorr(y, targetFs);
         if length(y) < minLen
             tpl.missing{end+1} = [templateNames{k} ' (quá ngắn)']; %#ok<AGROW>
             continue;
@@ -329,8 +328,14 @@ function cmd = speechDSPCore2D(audioInput, inputFs, templates)
     minMargin = 0.05;                 % Cách biệt tối thiểu giữa hạng 1 và hạng 2
     minLen = round(targetFs * 0.12);  % Độ dài tối thiểu (120 ms)
 
-    stages = preprocessAudioStages(audioInput, inputFs, targetFs);
-    x = stages.vad;
+    x = audioInput;
+    Fs = inputFs;
+    if size(x, 2) > 1, x = mean(x, 2); end
+    if Fs ~= targetFs, x = resample(x, targetFs, Fs); end
+
+    % Tiền xử lý File Test
+    x = bandpassFilter(x, targetFs);
+    x = removeSilenceAutocorr(x, targetFs);
 
     if length(x) < minLen
         fprintf('Tín hiệu quá ngắn sau khi cắt khoảng lặng -> UNKNOWN\n');
@@ -377,17 +382,6 @@ function cmd = speechDSPCore2D(audioInput, inputFs, templates)
     else
         cmd = cmdNames{order(1)};
     end
-end
-
-function stages = preprocessAudioStages(audioInput, inputFs, targetFs)
-    x = audioInput;
-    if size(x, 2) > 1, x = mean(x, 2); end
-    if inputFs ~= targetFs, x = resample(x, targetFs, inputFs); end
-
-    stages.raw = x;
-    stages.bandpassed = bandpassFilter(x, targetFs);
-    stages.denoised = reduceGaussianNoise(stages.bandpassed, targetFs);
-    stages.vad = removeSilenceAutocorr(stages.denoised, targetFs);
 end
 
 function valid = isValidSpectrogram(S)
