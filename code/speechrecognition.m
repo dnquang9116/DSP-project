@@ -48,6 +48,10 @@ function speechrecognition()
               'BackgroundColor', [0.1 0.6 0.2], 'ForegroundColor', 'w', ...
               'Callback', @(~,~) testAudioCommand());
 
+    uicontrol('Style', 'pushbutton', 'String', 'XEM CÁC GIAI ĐOẠN', ...
+              'Position', [680, 125, 190, 35], 'FontSize', 9, 'FontWeight', 'bold', ...
+              'Callback', @(~,~) viewSignalStages());
+
     % Các nút phím bấm mô phỏng nhanh (dùng để test giao diện)
     uicontrol('Style', 'text', 'Position', [680, 310, 190, 20], 'String', '--- Test Nhanh Phím ---');
     uicontrol('Style', 'pushbutton', 'String', 'TIẾN', 'Position', [740, 260, 70, 30], 'Callback', @(~,~) executeCommand('tien'));
@@ -166,6 +170,80 @@ function speechrecognition()
             set(hStatus, 'String', {'KHÔNG NHẬN DẠNG ĐƯỢC!', '(Điểm thấp hoặc hai lệnh quá sát nhau)'});
         end
     end
+
+    function viewSignalStages()
+        [fileName, pathName] = uigetfile( ...
+            {'*.wav;*.mp3;*.m4a', 'Tệp âm thanh (*.wav, *.mp3, *.m4a)'}, ...
+            'Chọn tín hiệu mẫu', baseDir);
+        if isequal(fileName, 0)
+            return;
+        end
+
+        samplePath = fullfile(pathName, fileName);
+        try
+            [sampleAudio, sampleFs] = audioread(samplePath);
+        catch ME
+            set(hStatus, 'String', {'Không đọc được tín hiệu mẫu:', ME.message});
+            return;
+        end
+        if isempty(sampleAudio)
+            set(hStatus, 'String', 'Tệp âm thanh mẫu không có dữ liệu.');
+            return;
+        end
+
+        stages = preprocessAudioStages(sampleAudio, sampleFs, targetFs);
+        stageFig = figure('Name', ['Các giai đoạn xử lý - ' fileName], ...
+                          'NumberTitle', 'off', 'Position', [100, 100, 1100, 700], ...
+                          'Color', 'w');
+
+        axRaw = subplot(2, 2, 1, 'Parent', stageFig);
+        time = (0:numel(stages.raw)-1) / targetFs;
+        plot(axRaw, time, stages.raw);
+        grid(axRaw, 'on');
+        xlabel(axRaw, 'Thời gian (s)');
+        ylabel(axRaw, 'Biên độ');
+        title(axRaw, 'Tín hiệu thô (mono, 16 kHz)');
+
+        axFiltered = subplot(2, 2, 2, 'Parent', stageFig);
+        time = (0:numel(stages.filtered)-1) / targetFs;
+        plot(axFiltered, time, stages.filtered);
+        grid(axFiltered, 'on');
+        xlabel(axFiltered, 'Thời gian (s)');
+        ylabel(axFiltered, 'Biên độ');
+        title(axFiltered, 'Sau bộ lọc thông dải');
+
+        axVad = subplot(2, 2, 3, 'Parent', stageFig);
+        time = (0:numel(stages.vad)-1) / targetFs;
+        plot(axVad, time, stages.vad);
+        grid(axVad, 'on');
+        xlabel(axVad, 'Thời gian (s)');
+        ylabel(axVad, 'Biên độ');
+        title(axVad, 'Sau VAD (đã cắt khoảng lặng)');
+
+        axSpec = subplot(2, 2, 4, 'Parent', stageFig);
+        winLen = round(targetFs * 0.025);
+        if numel(stages.vad) < winLen
+            text(axSpec, 0.5, 0.5, 'Tín hiệu quá ngắn để vẽ spectrogram', ...
+                 'HorizontalAlignment', 'center');
+            axis(axSpec, 'off');
+        else
+            overlap = round(winLen * 0.7);
+            [S, F, T] = spectrogram(stages.vad, winLen, overlap, 512, targetFs);
+            inBand = F >= 150 & F <= 7700;
+            S_dB = 20 * log10(abs(S(inBand, :)) + 1e-6);
+            S_dB = max(S_dB, max(S_dB(:)) - 45);
+            imagesc(axSpec, T, F(inBand), S_dB);
+            axis(axSpec, 'xy');
+            ylim(axSpec, [150 7700]);
+            xlabel(axSpec, 'Thời gian (s)');
+            ylabel(axSpec, 'Tần số (Hz)');
+            title(axSpec, 'Spectrogram tín hiệu mẫu sau VAD');
+            colorbar(axSpec);
+            colormap(stageFig, parula);
+        end
+
+        set(hStatus, 'String', {'Đang xem các giai đoạn xử lý:', fileName});
+    end
 end
 
 % =========================================================================
@@ -218,10 +296,8 @@ function tpl = loadTemplates(baseDir, targetFs)
             tpl.missing{end+1} = [templateNames{k} ' (lỗi đọc)']; %#ok<AGROW>
             continue;
         end
-        if size(y, 2) > 1, y = mean(y, 2); end     % [SỬA 3] thống nhất với file test
-        if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
-        y = bandpassFilter(y, targetFs);
-        y = removeSilenceAutocorr(y, targetFs);
+        stages = preprocessAudioStages(y, Fs_y, targetFs);
+        y = stages.vad;
         if length(y) < minLen
             tpl.missing{end+1} = [templateNames{k} ' (quá ngắn)']; %#ok<AGROW>
             continue;
@@ -245,14 +321,8 @@ function cmd = speechDSPCore2D(audioInput, inputFs, templates)
     minMargin = 0.05;                 % Cách biệt tối thiểu giữa hạng 1 và hạng 2
     minLen = round(targetFs * 0.12);  % Độ dài tối thiểu (120 ms)
 
-    x = audioInput;
-    Fs = inputFs;
-    if size(x, 2) > 1, x = mean(x, 2); end
-    if Fs ~= targetFs, x = resample(x, targetFs, Fs); end
-
-    % Tiền xử lý File Test
-    x = bandpassFilter(x, targetFs);
-    x = removeSilenceAutocorr(x, targetFs);
+    stages = preprocessAudioStages(audioInput, inputFs, targetFs);
+    x = stages.vad;
 
     if length(x) < minLen
         fprintf('Tín hiệu quá ngắn sau khi cắt khoảng lặng -> UNKNOWN\n');
@@ -301,20 +371,30 @@ function cmd = speechDSPCore2D(audioInput, inputFs, templates)
     end
 end
 
+function stages = preprocessAudioStages(audioInput, inputFs, targetFs)
+    x = audioInput;
+    if size(x, 2) > 1, x = mean(x, 2); end
+    if inputFs ~= targetFs, x = resample(x, targetFs, inputFs); end
+
+    stages.raw = x;
+    stages.filtered = bandpassFilter(x, targetFs);
+    stages.vad = removeSilenceAutocorr(stages.filtered, targetFs);
+end
+
 function valid = isValidSpectrogram(S)
     valid = ~isempty(S) && all(isfinite(S(:))) && std(S(:)) > 1e-6;
 end
 
 % --- HÀM PHỤ 1: TRÍCH XUẤT MA TRẬN PHỔ 2D ---
 function S_norm = computeSpectrogram2D(x, Fs)
-    winLen = round(Fs * 0.030);   % Cửa sổ 30 ms
+    winLen = round(Fs * 0.025);   % Cửa sổ 30 ms
     overlap = round(winLen * 0.7); % Độ chồng lấp 70%
     nfft = 512;                   % Số điểm FFT
 
     [S, F, ~] = spectrogram(x, winLen, overlap, nfft, Fs);
 
     % Chỉ giữ dải tần trong băng lọc, bỏ vùng ngoài băng thông
-    S = S(F >= 150 & F <= 7000, :);
+    S = S(F >= 150 & F <= 7700, :);
     S_dB = 20 * log10(abs(S) + 1e-6); % Chuyển đổi sang Logarit (dB)
 
     % Cắt dải động 45 dB (giống lúc vẽ) để nền nhiễu không chi phối z-score
@@ -371,9 +451,9 @@ end
 function x_filtered = bandpassFilter(x, Fs)
     % Băng thông 150-7000 Hz (cần Fs >= 16 kHz); nhánh catch dùng cùng dải
     try
-        x_filtered = bandpass(x, [150 7000], Fs);
+        x_filtered = bandpass(x, [150 7700], Fs);
     catch
-        [b, a] = butter(2, [150 7000] / (Fs/2), 'bandpass');
+        [b, a] = butter(2, [150 7500] / (Fs/2), 'bandpass');
         x_filtered = filtfilt(b, a, x);
     end
 end

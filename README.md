@@ -57,6 +57,9 @@ Khi giao diện xuất hiện:
 2. Nói một lệnh trong khoảng 2 giây.
 3. Chờ hệ thống xử lý và cập nhật trạng thái xe.
 4. Bấm lại nút để thực hiện lệnh tiếp theo.
+5. Bấm **XEM CÁC GIAI ĐOẠN** để chọn một tệp âm thanh mẫu và xem tín hiệu thô, sau bộ lọc, sau VAD cùng spectrogram trong một cửa sổ riêng.
+
+Nút xem giai đoạn hỗ trợ WAV, MP3 và M4A. Tín hiệu được chuyển về mono và 16 kHz trước khi vẽ; spectrogram hiển thị tín hiệu sau VAD.
 
 Module `recordVoice.m` đảm nhiệm việc tạo `audiorecorder`, thu âm 2 giây và trả về tín hiệu cùng tần số lấy mẫu 8 kHz.
 
