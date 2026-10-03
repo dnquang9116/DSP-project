@@ -42,6 +42,11 @@ function speechrecognition()
                         'String', 'Trạng thái: Đang chờ lệnh...', ...
                         'BackgroundColor', [1 1 0.9]);
 
+    hSNR = uicontrol('Style', 'text', 'Position', [670, 416, 210, 20], ...
+                     'FontSize', 10, 'FontWeight', 'bold', ...
+                     'String', 'SNR: -- dB', ...
+                     'BackgroundColor', [0.94 0.94 0.94]);
+
     % Nút ghi âm trực tiếp từ microphone (lưu handle để khóa/mở nút khi đang ghi)
     hRecBtn = uicontrol('Style', 'pushbutton', 'String', 'GHI ÂM GIỌNG NÓI', ...
               'Position', [680, 370, 190, 45], 'FontSize', 10, 'FontWeight', 'bold', ...
@@ -160,6 +165,13 @@ function speechrecognition()
             return;
         end
 
+        snrDb = estimateSNRDb(recordedAudio, targetFs);
+        if isfinite(snrDb)
+            set(hSNR, 'String', sprintf('SNR ước lượng: %.1f dB', snrDb));
+        else
+            set(hSNR, 'String', 'SNR: Không xác định');
+        end
+
         % Gọi thuật toán nhận dạng lệnh DSP (Bản 2D Spectrogram)
         detectedCmd = speechDSPCore2D(recordedAudio, targetFs, templates);
 
@@ -169,6 +181,33 @@ function speechrecognition()
             set(hStatus, 'String', {'KHÔNG NHẬN DẠNG ĐƯỢC!', '(Điểm thấp hoặc hai lệnh quá sát nhau)'});
         end
     end
+end
+
+function snrDb = estimateSNRDb(x, Fs)
+    frameLen = max(1, round(Fs * 0.02));
+    numFrames = floor(numel(x) / frameLen);
+    if numFrames < 2
+        snrDb = NaN;
+        return;
+    end
+
+    frames = reshape(x(1:numFrames * frameLen), frameLen, numFrames);
+    framePower = mean(frames.^2, 1);
+    sortedPower = sort(framePower);
+    noiseCount = max(1, ceil(0.1 * numFrames));
+    noisePower = mean(sortedPower(1:noiseCount));
+    activeFrames = framePower > 4 * noisePower;
+    if ~any(activeFrames) || noisePower <= 0
+        snrDb = NaN;
+        return;
+    end
+
+    signalPower = mean(framePower(activeFrames)) - noisePower;
+    if signalPower <= 0
+        snrDb = NaN;
+        return;
+    end
+    snrDb = 10 * log10(signalPower / noisePower);
 end
 
 % =========================================================================
