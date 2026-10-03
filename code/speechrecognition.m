@@ -42,11 +42,6 @@ function speechrecognition()
                         'String', 'Trạng thái: Đang chờ lệnh...', ...
                         'BackgroundColor', [1 1 0.9]);
 
-    hSNR = uicontrol('Style', 'text', 'Position', [670, 416, 210, 20], ...
-                     'FontSize', 10, 'FontWeight', 'bold', ...
-                     'String', 'SNR: -- dB', ...
-                     'BackgroundColor', [0.94 0.94 0.94]);
-
     % Nút ghi âm trực tiếp từ microphone (lưu handle để khóa/mở nút khi đang ghi)
     hRecBtn = uicontrol('Style', 'pushbutton', 'String', 'GHI ÂM GIỌNG NÓI', ...
               'Position', [680, 370, 190, 45], 'FontSize', 10, 'FontWeight', 'bold', ...
@@ -61,19 +56,16 @@ function speechrecognition()
     uicontrol('Style', 'pushbutton', 'String', 'PHẢI', 'Position', [815, 220, 70, 30], 'Callback', @(~,~) executeCommand('phai'));
     uicontrol('Style', 'pushbutton', 'String', 'DỪNG', 'Position', [740, 220, 70, 30], 'BackgroundColor', [0.8 0.2 0.2], 'ForegroundColor', 'w', 'Callback', @(~,~) executeCommand('dung'));
 
-    % Kiểm tra toolbox và nạp + tiền xử lý các template MỘT LẦN khi khởi động
+    % [SỬA 3] Kiểm tra toolbox và nạp + tiền xử lý 5 template MỘT LẦN khi khởi động
     missingFcn = {};
     for fn = {'spectrogram', 'resample', 'normxcorr2'}
         if isempty(which(fn{1})), missingFcn{end+1} = fn{1}; end %#ok<AGROW>
     end
     templates = loadTemplates(baseDir, targetFs);
-    templateCount = sum(cellfun(@numel, templates.S));
     if ~isempty(missingFcn)
         set(hStatus, 'String', [{'Thiếu hàm (toolbox):'}, missingFcn]);
     elseif ~isempty(templates.missing)
-        set(hStatus, 'String', [{sprintf('Đã nạp %d mẫu.', templateCount), 'Thiếu/lỗi file mẫu:'}, templates.missing]);
-    else
-        set(hStatus, 'String', sprintf('Sẵn sàng: %d mẫu cho %d lệnh', templateCount, numel(templates.cmdNames)));
+        set(hStatus, 'String', [{'Thiếu/lỗi file mẫu:'}, templates.missing]);
     end
 
     % --- HÀM THỰC THI DI CHUYỂN XE ---
@@ -139,7 +131,7 @@ function speechrecognition()
 
         % [SỬA 3] Không có template nào thì không cần ghi âm
         if all(cellfun(@isempty, templates.S))
-            set(hStatus, 'String', {'Không có file mẫu hợp lệ!', 'Kiểm tra tên và định dạng các file mẫu trong thư mục code'});
+            set(hStatus, 'String', {'Không có file mẫu hợp lệ!', 'Kiểm tra tien/lui/trai/phai/dung.wav'});
             return;
         end
 
@@ -165,13 +157,6 @@ function speechrecognition()
             return;
         end
 
-        snrDb = estimateSNRDb(recordedAudio, targetFs);
-        if isfinite(snrDb)
-            set(hSNR, 'String', sprintf('SNR ước lượng: %.1f dB', snrDb));
-        else
-            set(hSNR, 'String', 'SNR: Không xác định');
-        end
-
         % Gọi thuật toán nhận dạng lệnh DSP (Bản 2D Spectrogram)
         detectedCmd = speechDSPCore2D(recordedAudio, targetFs, templates);
 
@@ -181,33 +166,6 @@ function speechrecognition()
             set(hStatus, 'String', {'KHÔNG NHẬN DẠNG ĐƯỢC!', '(Điểm thấp hoặc hai lệnh quá sát nhau)'});
         end
     end
-end
-
-function snrDb = estimateSNRDb(x, Fs)
-    frameLen = max(1, round(Fs * 0.02));
-    numFrames = floor(numel(x) / frameLen);
-    if numFrames < 2
-        snrDb = NaN;
-        return;
-    end
-
-    frames = reshape(x(1:numFrames * frameLen), frameLen, numFrames);
-    framePower = mean(frames.^2, 1);
-    sortedPower = sort(framePower);
-    noiseCount = max(1, ceil(0.1 * numFrames));
-    noisePower = mean(sortedPower(1:noiseCount));
-    activeFrames = framePower > 4 * noisePower;
-    if ~any(activeFrames) || noisePower <= 0
-        snrDb = NaN;
-        return;
-    end
-
-    signalPower = mean(framePower(activeFrames)) - noisePower;
-    if signalPower <= 0
-        snrDb = NaN;
-        return;
-    end
-    snrDb = 10 * log10(signalPower / noisePower);
 end
 
 % =========================================================================
@@ -241,58 +199,39 @@ end
 % NẠP VÀ TIỀN XỬ LÝ TEMPLATE (CHỈ CHẠY MỘT LẦN)
 % =========================================================================
 function tpl = loadTemplates(baseDir, targetFs)
+    templateNames = {'tien.wav', 'lui.wav', 'trai.wav', 'phai.wav', 'dung.wav'};
     tpl.cmdNames = {'tien', 'lui', 'trai', 'phai', 'dung'};
-    templateAliases = {{'tien', 'tiến'}, {'lui', 'lùi'}, ...
-                       {'trai', 'trái'}, {'phai', 'phải'}, {'dung', 'dừng'}};
-    supportedExt = {'.wav', '.mp3', '.m4a'};
     tpl.Fs = targetFs;
-    tpl.S = cell(1, numel(tpl.cmdNames));   % Mỗi lệnh chứa phổ của nhiều file mẫu
+    tpl.S = cell(1, numel(templateNames));   % phổ đã chuẩn hóa; rỗng nếu thiếu
     tpl.missing = {};
     minLen = round(targetFs * 0.12);
-    files = dir(baseDir);
 
-    for k = 1:numel(tpl.cmdNames)
-        tpl.S{k} = {};
-        templateNames = {};
-        for fileIdx = 1:numel(files)
-            if files(fileIdx).isdir, continue; end
-            [~, fileName, fileExt] = fileparts(files(fileIdx).name);
-            if ~any(strcmpi(fileExt, supportedExt)), continue; end
-            for aliasIdx = 1:numel(templateAliases{k})
-                if startsWith(lower(fileName), lower(templateAliases{k}{aliasIdx}))
-                    templateNames{end+1} = files(fileIdx).name; %#ok<AGROW>
-                    break;
-                end
-            end
-        end
-
-        if isempty(templateNames)
-            tpl.missing{end+1} = [tpl.cmdNames{k} ' (không có mẫu)']; %#ok<AGROW>
+    for k = 1:numel(templateNames)
+        f = fullfile(baseDir, templateNames{k});
+        if ~exist(f, 'file')
+            tpl.missing{end+1} = templateNames{k}; %#ok<AGROW>
             continue;
         end
-
-        for j = 1:numel(templateNames)
-            f = fullfile(baseDir, templateNames{j});
-            try
-                [y, Fs_y] = audioread(f);
-            catch ME
-                tpl.missing{end+1} = [templateNames{j} ' (lỗi đọc: ' ME.message ')']; %#ok<AGROW>
-                continue;
-            end
-            if size(y, 2) > 1, y = mean(y, 2); end
-            if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
-            y = bandpassFilter(y, targetFs);
-            y = removeSilenceAutocorr(y, targetFs);
-            if length(y) < minLen
-                tpl.missing{end+1} = [templateNames{j} ' (quá ngắn)']; %#ok<AGROW>
-                continue;
-            end
-            tpl.S{k}{end+1} = computeSpectrogram2D(y, targetFs); %#ok<AGROW>
+        try
+            [y, Fs_y] = audioread(f);
+        catch
+            tpl.missing{end+1} = [templateNames{k} ' (lỗi đọc)']; %#ok<AGROW>
+            continue;
         end
-
-        if isempty(tpl.S{k})
-            tpl.missing{end+1} = [tpl.cmdNames{k} ' (không có mẫu hợp lệ)']; %#ok<AGROW>
+        if size(y, 2) > 1, y = mean(y, 2); end     % [SỬA 3] thống nhất với file test
+        if Fs_y ~= targetFs, y = resample(y, targetFs, Fs_y); end
+        y = bandpassFilter(y, targetFs);
+        y = removeSilenceAutocorr(y, targetFs);
+        if length(y) < minLen
+            tpl.missing{end+1} = [templateNames{k} ' (quá ngắn)']; %#ok<AGROW>
+            continue;
         end
+        S_template = computeSpectrogram2D(y, targetFs);
+        if ~isValidSpectrogram(S_template)
+            tpl.missing{end+1} = [templateNames{k} ' (phổ không hợp lệ)']; %#ok<AGROW>
+            continue;
+        end
+        tpl.S{k} = S_template;
     end
 end
 
@@ -321,30 +260,29 @@ function cmd = speechDSPCore2D(audioInput, inputFs, templates)
         return;
     end
     S_test = computeSpectrogram2D(x, targetFs); % Trích xuất phổ 2D
+    if ~isValidSpectrogram(S_test)
+        fprintf('Phổ tín hiệu không hợp lệ hoặc không có biến thiên -> UNKNOWN\n');
+        cmd = 'UNKNOWN';
+        return;
+    end
 
     peaks = zeros(1, numel(cmdNames));
 
     for k = 1:numel(cmdNames)
-        commandTemplates = templates.S{k};
-        if isempty(commandTemplates), continue; end
+        S_template = templates.S{k};        % [SỬA 3] dùng phổ đã tính sẵn
+        if ~isValidSpectrogram(S_template), continue; end
 
-        templatePeaks = zeros(1, numel(commandTemplates));
-        for j = 1:numel(commandTemplates)
-            S_template = commandTemplates{j};
-
-            % Cái ngắn hơn (theo thời gian) làm template, cái dài hơn làm ảnh
-            if size(S_test, 2) < size(S_template, 2)
-                T = S_test;     A = S_template;
-            else
-                T = S_template; A = S_test;
-            end
-            C2D = normxcorr2(T, A);
-            % Chỉ lấy vùng "valid": template nằm trọn trong ảnh
-            C2D = C2D(size(T,1):size(A,1), size(T,2):size(A,2));
-            templatePeaks(j) = max(C2D(:));
+        % Cái ngắn hơn (theo thời gian) làm template, cái dài hơn làm ảnh
+        if size(S_test, 2) < size(S_template, 2)
+            T = S_test;     A = S_template;
+        else
+            T = S_template; A = S_test;
         end
+        C2D = normxcorr2(T, A);
+        % Chỉ lấy vùng "valid": template nằm trọn trong ảnh
+        C2D = C2D(size(T,1):size(A,1), size(T,2):size(A,2));
 
-        peaks(k) = max(templatePeaks);
+        peaks(k) = max(C2D(:)); % Lưu lại đỉnh tương quan cực đại
     end
 
     % In điểm để chỉnh ngưỡng bằng dữ liệu thật
@@ -361,6 +299,10 @@ function cmd = speechDSPCore2D(audioInput, inputFs, templates)
     else
         cmd = cmdNames{order(1)};
     end
+end
+
+function valid = isValidSpectrogram(S)
+    valid = ~isempty(S) && all(isfinite(S(:))) && std(S(:)) > 1e-6;
 end
 
 % --- HÀM PHỤ 1: TRÍCH XUẤT MA TRẬN PHỔ 2D ---
